@@ -122,6 +122,8 @@ body.recording .ctrl{padding:10px 14px}
     <button class="primary" id="copyOpenBtn" type="button">Copiar y abrir Apuntes</button>
     <button id="copyBtn" type="button">Copiar transcripción</button>
     <a class="btn hidden" id="audioLink" href="#">Descargar audio</a>
+    <button id="fileBtn" type="button">Transcribir un audio grabado</button>
+    <input type="file" id="fileIn" class="hidden" accept="audio/*,video/mp4,.m4a,.mp3,.wav,.webm,.ogg,.aac">
     <button id="clearBtn" type="button">Nueva grabación</button>
   </div>
 
@@ -231,6 +233,7 @@ function renderCtrl(){
   $("#recLabel").textContent = want ? "Pausar" : (segs.length || accMs ? "Seguir grabando" : "Grabar");
   $("#optAudio").disabled = want || chunks.length > 0;
   $("#optWsp").disabled = want;
+  $("#fileBtn").disabled = want;
   $("#testBtn").disabled = want;
   $("#timer").textContent = hms(elapsed());
   const has = segs.length > 0 || blocks.length > 0;
@@ -268,7 +271,11 @@ function startSR(){
       const res = e.results[i];
       if(res.isFinal) addSeg(res[0].transcript); else interim += res[0].transcript;
     }
-    setInterim(interim.trim());
+    interim = interim.trim();
+    // Safari a veces descarta la frase en curso sin darla por final y empieza otra: se guarda la anterior
+    const prev = interimText, key = t => t.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "").slice(0, 12);
+    if(prev.length > 25 && interim && key(interim) !== key(prev) && !interim.toLowerCase().includes(prev.toLowerCase().slice(0, 20))) addSeg(prev);
+    setInterim(interim);
   };
   r.onerror = e => {
     if(e.error === "not-allowed" || e.error === "service-not-allowed"){
@@ -285,7 +292,7 @@ function startSR(){
     fastEnds = fastEnds.filter(t => now - t < 15000);
     if(now - began < 1500) fastEnds.push(now);
     if(fastEnds.length >= 5){ showBanner("La transcripción se ha detenido varias veces seguidas. Pulsa Reanudar."); return; }
-    setTimeout(() => { if(want && r === rec) startSR(); }, 250);
+    setTimeout(() => { if(want && r === rec) startSR(); }, 30);   // sin hueco: cada pausa perdía palabras
   };
   try{ r.start(); }catch(e){}
 }
@@ -595,6 +602,33 @@ async function decode16k(blob){
 // Quita los silencios largos antes de Whisper (ahí es donde se inventa frases) y sube el volumen
 // si la voz llega baja. Devuelve el audio recortado y un mapa para devolver cada frase a su hora real.
 const VAD_HZ = 16000, VAD_F = 320;   // tramos de 20 ms
+// Ganancia automática por tramos de 0,5 s: sube cada tramo de voz hasta ~-20 dB, con un tope
+// (×30 si el profesor está lejos) para no convertir el ruido en «voz». Se suaviza para no dar saltos.
+function agc(x, maxG){
+  const W = 8000, TARGET = 0.1, n = Math.ceil(x.length / W), gains = new Float32Array(n);
+  let floor = Infinity;
+  const rms = new Float32Array(n);
+  for(let w = 0; w < n; w++){
+    let s = 0, a = w * W, b = Math.min(x.length, a + W);
+    for(let i = a; i < b; i++) s += x[i] * x[i];
+    rms[w] = Math.sqrt(s / Math.max(1, b - a)); if(rms[w] > 0 && rms[w] < floor) floor = rms[w];
+  }
+  // Ruido de fondo: los tramos más bajos que no son silencio digital (los huecos que mete el recorte valen 0)
+  const sorted = Array.from(rms).filter(v => v > 1e-5).sort((a, b) => a - b), noise = sorted[Math.floor(sorted.length * 0.05)] || 0;
+  for(let w = 0; w < n; w++){
+    const voice = rms[w] > noise * 2.5;             // en ruido de fondo no se sube tanto
+    const g = rms[w] > 0 ? TARGET / rms[w] : 1;
+    gains[w] = Math.max(1, Math.min(g, voice ? maxG : Math.min(maxG, 4)));
+  }
+  for(let w = 1; w < n; w++) gains[w] = Math.min(gains[w], gains[w - 1] * 3);          // sin saltos bruscos
+  for(let w = n - 2; w >= 0; w--) gains[w] = Math.min(gains[w], gains[w + 1] * 3);
+  for(let i = 0; i < x.length; i++){
+    const p = i / W - 0.5, w = Math.max(0, Math.min(n - 1, Math.floor(p))), f = Math.max(0, Math.min(1, p - w));
+    const g = gains[w] + (gains[Math.min(n - 1, w + 1)] - gains[w]) * f;
+    let v = x[i] * g; v = v > 0.98 ? 0.98 : v < -0.98 ? -0.98 : v; x[i] = v;
+  }
+}
+let far = false;   // «Profesor lejos» o archivo marcado como tal
 function voiceOnly(x){
   const n = Math.floor(x.length / VAD_F);
   if(n < 50) return { audio: x, map: null };
@@ -634,11 +668,8 @@ function voiceOnly(x){
       });
     }
   }
-  // Normaliza: la voz más fuerte del bloque a ~90 % (como mucho ×10, para no inflar el ruido)
-  let pk = 0;
-  for(let i = 0; i < out.length; i++){ const v = out[i] < 0 ? -out[i] : out[i]; if(v > pk) pk = v; }
-  const g = pk > 0 ? Math.min(0.9 / pk, 10) : 1;
-  if(g > 1.1){ if(out === x) out = x.slice(); for(let i = 0; i < out.length; i++) out[i] *= g; }
+  if(out === x) out = x.slice();
+  agc(out, far ? 30 : 10);
   return { audio: out, map };
 }
 function realSec(map, sec){
@@ -671,7 +702,8 @@ async function processQueue(){
     wspStatus();
     let res, map = null;
     try{
-      const raw = await decode16k(job.blob), v = voiceOnly(raw);
+      const raw = job.src ? job.src.slice(job.a, job.b) : await decode16k(job.blob), v = voiceOnly(raw);
+      if(job.src) $("#wspState").textContent = "Transcribiendo el archivo: tramo " + job.k + " de " + job.of + "…" + (wspLoad ? " " + wspLoad : "");
       const live = segs.some(s => s.t >= job.t0 && s.t <= job.t1);
       if(v.audio) { map = v.map; res = await runWorker(v.audio); }
       else if(live) res = await runWorker(raw);                    // el directo sí oyó algo: mejor no fiarse del recorte
@@ -680,6 +712,7 @@ async function processQueue(){
     catch(e){ res = { type: "error", message: "No se pudo leer el audio" }; }
     wq.shift();
     if(job.gen !== gen) continue;                 // se pulsó «Nueva grabación»
+    if(job.src && job.k === job.of) setTimeout(() => toast("Archivo transcrito. Pulsa «Copiar y abrir Apuntes»."), 300);
     if(res.type === "result"){
       blocks.push({ t0: job.t0, t1: job.t1, lines: cleanLines(res.chunks, job.t0, map) });
       blocks.sort((a, b) => a.t0 - b.t0);
@@ -786,11 +819,35 @@ $("#optWsp").addEventListener("change", () => {
 });
 $("#micSel").addEventListener("change", e => { aud.mic = e.target.value; saveAud(); swapMic(); });
 $("#optNs").addEventListener("change", e => { aud.ns = e.target.checked; saveAud(); swapMic(); });
-$("#optBoost").addEventListener("change", e => { aud.boost = e.target.checked; saveAud(); applyBoost(); lvl = []; });
+$("#optBoost").addEventListener("change", e => { aud.boost = e.target.checked; far = aud.boost; saveAud(); applyBoost(); lvl = []; });
 $("#wspModel").addEventListener("change", e => {
   aud.model = e.target.value; saveAud();
   if(worker && !wspBusy){ resetWorker(); if(want && segRec) getWorker(); }   // si está ocupado, cambia en el siguiente bloque
   if(aud.model === "turbo") toast("Precisión máxima: la primera vez descarga ~1,3 GB. Necesita tarjeta gráfica; si no, se usa la Normal.");
+});
+// Transcribir un archivo (p. ej. el audio grabado con el iPad) con Whisper en el ordenador
+$("#fileBtn").addEventListener("click", () => {
+  if(LIGHT){ toast("Hazlo en el ordenador: en el iPad Whisper puede congelar la página. Descarga el audio y ábrelo en la Grabadora del ordenador."); return; }
+  $("#fileIn").click();
+});
+$("#fileIn").addEventListener("change", async e => {
+  const f = e.target.files && e.target.files[0]; e.target.value = "";
+  if(!f) return;
+  $("#wspState").textContent = "Leyendo el audio «" + f.name + "»…";
+  let x;
+  try{ x = await decode16k(f); }catch(err){ $("#wspState").textContent = "No se pudo leer ese archivo. Prueba con .m4a, .mp3, .wav o .webm."; return; }
+  const dur = x.length / VAD_HZ, start = (f.lastModified || Date.now()) - dur * 1000;   // el archivo se guarda al acabar la clase
+  if(!name) { name = f.name.replace(/\.[^.]+$/, ""); $("#fName").value = name; }
+  far = true;   // audio de clase grabado desde el pupitre: se trata como voz lejana
+  $("#optWsp").checked = true;
+  const STEP = VAD_HZ * 300, of = Math.ceil(x.length / STEP);
+  for(let k = 0; k < of; k++){
+    const a = k * STEP, b = Math.min(x.length, a + STEP);
+    wq.push({ src: x, a, b, k: k + 1, of, t0: Math.round(start + a / VAD_HZ * 1000), t1: Math.round(start + b / VAD_HZ * 1000), gen });
+  }
+  view = "full"; renderTrans();
+  toast("Transcribiendo " + Math.round(dur / 60) + " min de audio. Puedes dejar la pestaña abierta y hacer otra cosa.");
+  processQueue();
 });
 $("#testBtn").addEventListener("click", () => { if(testing) stopTest(); else startTest(); });
 // El procesado de audio necesita un toque en la página si la grabación arrancó sola
@@ -896,7 +953,7 @@ if(LIGHT){
   ["#testBtn", "#meter", "#micHint", "#optBoost", "#wspModel"].forEach(q => { const el = $(q); (el.closest("label") || el).classList.add("hidden"); });
   aud.boost = false; aud.model = "small";
 }
-$("#optBoost").checked = aud.boost; $("#optNs").checked = aud.ns; $("#wspModel").value = aud.model === "turbo" ? "turbo" : "small";
+$("#optBoost").checked = aud.boost; far = aud.boost; $("#optNs").checked = aud.ns; $("#wspModel").value = aud.model === "turbo" ? "turbo" : "small";
 listMics();
 renderTrans(); renderCtrl();
 if(auto && !segs.length) autoStart();
