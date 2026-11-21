@@ -66,6 +66,10 @@ select{font:inherit;font-size:14px;color:inherit;background:var(--surface);borde
 .meter div{height:100%;width:0;background:var(--accent);transition:width .1s linear}
 .meter.clip div{background:var(--rec)}
 .state.warn{color:var(--key)}
+.state.ok{color:var(--accent)}
+.cloud{border-top:1px solid var(--line);padding-top:10px}
+.cloud input{flex:1;min-width:0;font:inherit;font-size:14px;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+.cloud a{color:var(--accent)}
 .hidden{display:none !important}
 /* Mientras graba: solo controles y texto; la caja del texto llena la pantalla y lo último queda abajo, a la vista */
 body.recording main{height:100vh;height:100dvh;padding-block:12px;gap:10px}
@@ -105,8 +109,13 @@ body.recording .ctrl{padding:10px 14px}
     <div class="microw">
       <label class="opt"><input type="checkbox" id="optBoost"> Profesor lejos: reforzar la voz</label>
       <label class="opt"><input type="checkbox" id="optNs" checked> Reducir ruido</label>
-      <label class="opt">Precisión de Whisper <select id="wspModel"><option value="small">Normal (~250 MB)</option><option value="turbo">Máxima (tarjeta gráfica, ~1,3 GB)</option></select></label>
+      <label class="opt" id="wspModelLab">Precisión de Whisper <select id="wspModel"><option value="small">Normal (~250 MB)</option><option value="turbo">Máxima (tarjeta gráfica, ~1,3 GB)</option></select></label>
     </div>
+    <div class="microw cloud">
+      <label class="opt grow">Precisión máxima en la nube <input type="password" id="groqKey" placeholder="Pega aquí tu clave de Groq (gsk_…)" autocomplete="off" spellcheck="false"></label>
+      <button id="groqTest" type="button">Comprobar</button>
+    </div>
+    <div class="state" id="groqHint">Con una clave de Groq, el audio se transcribe con Whisper large-v3 (el modelo más preciso) cada 2 minutos mientras grabas, también en el iPad. Cuesta unos 0,20 € por clase de 2 horas. Consigue la clave gratis en <a href="https://console.groq.com/keys" target="_blank" rel="noopener">console.groq.com/keys</a>.</div>
   </div>
 
   <div class="banner hidden" id="banner" role="status"><span id="bannerText"></span><button id="resumeBtn" type="button">Reanudar</button></div>
@@ -149,7 +158,10 @@ let rec = null, srBlocked = false, srActive = false, interimText = "", fastEnds 
 let stream = null, mediaRec = null, chunks = [], mimeType = "", audioUrl = null, audioSaved = true;
 let wakeLock = null, clearArmed = 0, toastT = null, view = "live";
 // Whisper: el audio se trocea en bloques que se transcriben en segundo plano
-const SEG_MS = window.__SEG_MS || 5 * 60 * 1000;
+// Clave de Groq: solo en este dispositivo. Con ella, Whisper large-v3 en la nube en bloques de 2 min.
+let groqKey = ""; try{ groqKey = localStorage.getItem("grabadora.groq") || ""; }catch(e){}
+const CLOUD = () => !!groqKey;
+const segMs = () => window.__SEG_MS || (CLOUD() ? 2 : 5) * 60 * 1000;
 let blocks = [];                       // bloques ya transcritos: {t0, t1, lines:[{t, x}]}
 let wq = [], wspBusy = false, gen = 0; // cola de bloques pendientes
 let segRec = null, segT0 = 0, segTimer = null, stopping = 0;
@@ -202,12 +214,15 @@ function segEl(s, i){
   d.append(b, t, p); return d;
 }
 function renderTrans(){
-  const box = $("#trans"); box.innerHTML = "";
+  const box = $("#trans"), near = box.scrollHeight - box.scrollTop - box.clientHeight < 150;
+  box.innerHTML = "";
   $("#viewLive").setAttribute("aria-selected", view === "live"); $("#viewFull").setAttribute("aria-selected", view === "full");
   if(view === "full"){
     const all = finalSegs();
-    if(!blocks.length) box.innerHTML = '<div class="empty">Aquí aparece la transcripción completa de Whisper. Se hace por bloques de ' + Math.round(SEG_MS / 60000) + ' minutos de audio, o al pausar. Mientras tanto se muestra lo del directo.</div>';
+    if(!blocks.length) box.innerHTML = '<div class="empty">Aquí aparece la transcripción completa de Whisper' + (CLOUD() ? ' large-v3 (en la nube)' : '') + '. Se hace por bloques de ' + Math.round(segMs() / 60000) + ' minutos de audio, o al pausar. Mientras tanto se muestra lo del directo.</div>';
     const f = document.createDocumentFragment(); all.forEach(s => f.appendChild(segEl(s, -1))); box.appendChild(f);
+    const it = document.createElement("div"); it.className = "interim"; it.id = "interim"; it.textContent = interimText; box.appendChild(it);
+    if(near || want) box.scrollTop = box.scrollHeight;
     return;
   }
   if(!segs.length && !want){
@@ -245,7 +260,7 @@ function addSeg(text){
   const x = (text || "").replace(/\s+/g, " ").trim(); if(!x) return;
   const s = { t: Date.now(), x: x.charAt(0).toUpperCase() + x.slice(1), k: 0 };
   segs.push(s);
-  if(view === "full"){ renderCtrl(); save(); return; }
+  if(view === "full"){ renderTrans(); renderCtrl(); save(); return; }
   if(segs.length === 1) renderTrans();
   else { const box = $("#trans"); const near = box.scrollHeight - box.scrollTop - box.clientHeight < 80; box.insertBefore(segEl(s, segs.length - 1), $("#interim")); if(near) box.scrollTop = box.scrollHeight; }
   renderCtrl(); save();
@@ -566,6 +581,38 @@ function runWorker(audio){
   });
 }
 
+// WAV 16 kHz mono para enviar a la nube
+function wav16(x){
+  const b = new ArrayBuffer(44 + x.length * 2), v = new DataView(b), w = (o, t) => { for(let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  w(0, "RIFF"); v.setUint32(4, 36 + x.length * 2, true); w(8, "WAVE"); w(12, "fmt "); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 16000, true); v.setUint32(28, 32000, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, "data"); v.setUint32(40, x.length * 2, true);
+  for(let i = 0; i < x.length; i++){ const s = Math.max(-1, Math.min(1, x[i])); v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true); }
+  return new Blob([b], { type: "audio/wav" });
+}
+const GROQ = "https://api.groq.com/openai/v1";
+async function cloudTranscribe(audio){
+  const fd = new FormData();
+  fd.append("file", wav16(audio), "tramo.wav");
+  fd.append("model", "whisper-large-v3");
+  fd.append("language", "es");
+  fd.append("response_format", "verbose_json");
+  fd.append("temperature", "0");
+  fd.append("prompt", "Clase de un programa ejecutivo de negocio digital, en español, con puntuación.");
+  let r;
+  try{ r = await fetch(GROQ + "/audio/transcriptions", { method: "POST", headers: { Authorization: "Bearer " + groqKey }, body: fd }); }
+  catch(e){ return { type: "error", message: "sin conexión con la nube" }; }
+  if(r.status === 401) return { type: "error", message: "la clave de Groq no es válida" };
+  if(r.status === 429) return { type: "error", message: "límite de uso de Groq alcanzado; espera unos minutos" };
+  if(!r.ok) return { type: "error", message: "la nube respondió con un error " + r.status };
+  let d; try{ d = await r.json(); }catch(e){ return { type: "error", message: "respuesta ilegible de la nube" }; }
+  // Fuera los trozos que Whisper «oye» en el ruido (mucha probabilidad de silencio y poca confianza)
+  const chunks = (d.segments || []).filter(g => !(g.no_speech_prob > 0.6 && g.avg_logprob < -0.8)).map(g => ({ timestamp: [g.start, g.end], text: g.text }));
+  if(!chunks.length && d.text && !(d.segments || []).length) chunks.push({ timestamp: [0, null], text: d.text });
+  return { type: "result", chunks };
+}
+async function transcribe(audio){ return CLOUD() ? cloudTranscribe(audio) : runWorker(audio); }
+
 function startBlock(){
   if(!stream) return;
   try{
@@ -581,7 +628,7 @@ function startBlock(){
   r.start();
   segT0 = t0;
   clearTimeout(segTimer);
-  segTimer = setTimeout(() => { if(want && segRec === r){ endBlock(); startBlock(); } }, SEG_MS);
+  segTimer = setTimeout(() => { if(want && segRec === r){ endBlock(); startBlock(); } }, segMs());
 }
 function endBlock(){
   clearTimeout(segTimer);
@@ -705,8 +752,8 @@ async function processQueue(){
       const raw = job.src ? job.src.slice(job.a, job.b) : await decode16k(job.blob), v = voiceOnly(raw);
       if(job.src) $("#wspState").textContent = "Transcribiendo el archivo: tramo " + job.k + " de " + job.of + "…" + (wspLoad ? " " + wspLoad : "");
       const live = segs.some(s => s.t >= job.t0 && s.t <= job.t1);
-      if(v.audio) { map = v.map; res = await runWorker(v.audio); }
-      else if(live) res = await runWorker(raw);                    // el directo sí oyó algo: mejor no fiarse del recorte
+      if(v.audio) { map = v.map; res = await transcribe(v.audio); }
+      else if(live) res = await transcribe(raw);                    // el directo sí oyó algo: mejor no fiarse del recorte
       else res = { type: "result", chunks: [] };                   // bloque en silencio
     }
     catch(e){ res = { type: "error", message: "No se pudo leer el audio" }; }
@@ -732,9 +779,10 @@ function wspStatus(){
   if(wspLoad){ el.textContent = wspLoad; return; }
   const mins = Math.round(blocks.reduce((n, b) => n + (b.t1 - b.t0), 0) / 60000);
   const pend = wq.length;
-  if(pend) el.textContent = "Transcripción completa: procesando " + pend + (pend === 1 ? " bloque" : " bloques") + "… (" + mins + " min hechos" + (wspDevice ? ", " + (wspModel === "turbo" ? "precisión máxima, " : "") + (wspDevice === "webgpu" ? "con la tarjeta gráfica" : "con el procesador") : "") + ")";
-  else if(blocks.length) el.textContent = "Transcripción completa al día: " + mins + " min" + (want ? " · el bloque en curso se procesa a los " + Math.round(SEG_MS / 60000) + " min o al pausar" : " ✓");
-  else el.textContent = want ? "Transcripción completa: el primer bloque se procesa a los " + Math.round(SEG_MS / 60000) + " min o al pausar" : "";
+  if(pend && CLOUD()) el.textContent = "Precisión máxima (nube): procesando " + pend + (pend === 1 ? " bloque" : " bloques") + "… (" + mins + " min hechos)";
+  else if(pend) el.textContent = "Transcripción completa: procesando " + pend + (pend === 1 ? " bloque" : " bloques") + "… (" + mins + " min hechos" + (wspDevice ? ", " + (wspModel === "turbo" ? "precisión máxima, " : "") + (wspDevice === "webgpu" ? "con la tarjeta gráfica" : "con el procesador") : "") + ")";
+  else if(blocks.length) el.textContent = (CLOUD() ? "Precisión máxima al día: " : "Transcripción completa al día: ") + mins + " min" + (want ? " · el bloque en curso se procesa a los " + Math.round(segMs() / 60000) + " min o al pausar" : " ✓");
+  else el.textContent = want ? "Transcripción completa: el primer bloque se procesa a los " + Math.round(segMs() / 60000) + " min o al pausar" : "";
 }
 function pauseAudio(){ if(mediaRec && mediaRec.state === "recording"){ try{ mediaRec.requestData(); mediaRec.pause(); }catch(e){} } }
 function audioExt(){ return /mp4/.test(mimeType) ? "m4a" : /ogg/.test(mimeType) ? "ogg" : "webm"; }
@@ -769,8 +817,9 @@ async function start(){
   renderTrans(); renderCtrl();
   requestWake();
   await startAudio();
-  if(want) setState((SR && !srBlocked ? "Transcribiendo en directo" : "Sin transcripción en directo") + (mediaRec ? " · grabando audio" : "") + (segRec ? " · Whisper activo" : ""));
-  if(segRec) getWorker();      // empieza a cargar el modelo ya, mientras se graba
+  if(want) setState((SR && !srBlocked ? "Transcribiendo en directo" : "Sin transcripción en directo") + (mediaRec ? " · grabando audio" : "") + (segRec ? (CLOUD() ? " · precisión máxima (nube)" : " · Whisper activo") : ""));
+  if(segRec && !CLOUD()) getWorker();      // empieza a cargar el modelo ya, mientras se graba
+  if(segRec && CLOUD() && view !== "full"){ view = "full"; renderTrans(); }
   wspStatus();
 }
 function pause(){
@@ -814,12 +863,12 @@ $("#keyBtn").addEventListener("click", keyLast);
 $("#viewLive").addEventListener("click", () => { view = "live"; renderTrans(); });
 $("#viewFull").addEventListener("click", () => { view = "full"; renderTrans(); });
 $("#optWsp").addEventListener("change", () => {
-  if(LIGHT && $("#optWsp").checked) toast("Aviso: en iPad o móvil, Whisper descarga ~250 MB y puede congelar la página. Úsalo solo para probar.");
+  if(LIGHT && !CLOUD() && $("#optWsp").checked) toast("Aviso: en iPad o móvil, Whisper descarga ~250 MB y puede congelar la página. Úsalo solo para probar.");
   wspStatus();
 });
 $("#micSel").addEventListener("change", e => { aud.mic = e.target.value; saveAud(); swapMic(); });
 $("#optNs").addEventListener("change", e => { aud.ns = e.target.checked; saveAud(); swapMic(); });
-$("#optBoost").addEventListener("change", e => { aud.boost = e.target.checked; far = aud.boost; saveAud(); applyBoost(); lvl = []; });
+$("#optBoost").addEventListener("change", e => { aud.boost = e.target.checked; saveAud(); applyBoost(); lvl = []; });
 $("#wspModel").addEventListener("change", e => {
   aud.model = e.target.value; saveAud();
   if(worker && !wspBusy){ resetWorker(); if(want && segRec) getWorker(); }   // si está ocupado, cambia en el siguiente bloque
@@ -848,6 +897,24 @@ $("#fileIn").addEventListener("change", async e => {
   view = "full"; renderTrans();
   toast("Transcribiendo " + Math.round(dur / 60) + " min de audio. Puedes dejar la pestaña abierta y hacer otra cosa.");
   processQueue();
+});
+function groqUI(msg, cls){ const h = $("#groqHint"); if(msg){ h.textContent = msg; } h.className = "state" + (cls ? " " + cls : ""); }
+$("#groqKey").value = groqKey;
+if(groqKey) groqUI("Precisión máxima activada: Whisper large-v3 en la nube cada 2 minutos mientras grabas.", "ok");
+$("#groqKey").addEventListener("change", e => {
+  groqKey = e.target.value.trim();
+  try{ groqKey ? localStorage.setItem("grabadora.groq", groqKey) : localStorage.removeItem("grabadora.groq"); }catch(err){}
+  if(groqKey){ $("#optWsp").checked = true; if(worker && !wspBusy) resetWorker(); groqUI("Clave guardada en este dispositivo. Pulsa «Comprobar» para verla funcionar.", "ok"); }
+  else groqUI("Sin clave: se usa la transcripción del dispositivo.", "");
+  wspStatus(); renderCtrl();
+});
+$("#groqTest").addEventListener("click", async () => {
+  if(!groqKey){ groqUI("Pega primero la clave.", "warn"); return; }
+  groqUI("Comprobando…", "");
+  try{
+    const r = await fetch(GROQ + "/models", { headers: { Authorization: "Bearer " + groqKey } });
+    groqUI(r.ok ? "Clave correcta ✓ Precisión máxima activada: Whisper large-v3 cada 2 minutos mientras grabas." : r.status === 401 ? "La clave no es válida. Cópiala de nuevo desde console.groq.com/keys." : "Groq respondió con un error " + r.status + ". Prueba en unos minutos.", r.ok ? "ok" : "warn");
+  }catch(e){ groqUI("No hay conexión con Groq. Revisa internet.", "warn"); }
 });
 $("#testBtn").addEventListener("click", () => { if(testing) stopTest(); else startTest(); });
 // El procesado de audio necesita un toque en la página si la grabación arrancó sola
@@ -949,11 +1016,11 @@ if(auto && segs.length){
 } else if(nParam){ name = nParam; save(); }
 $("#fName").value = name;
 if(LIGHT){
-  $("#optWsp").checked = false;                     // en iPad/móvil, Whisper solo si lo activas tú
+  $("#optWsp").checked = CLOUD();                   // en iPad/móvil, Whisper solo en la nube (o si lo activas tú)
   ["#testBtn", "#meter", "#micHint", "#optBoost", "#wspModel"].forEach(q => { const el = $(q); (el.closest("label") || el).classList.add("hidden"); });
   aud.boost = false; aud.model = "small";
 }
-$("#optBoost").checked = aud.boost; far = aud.boost; $("#optNs").checked = aud.ns; $("#wspModel").value = aud.model === "turbo" ? "turbo" : "small";
+$("#optBoost").checked = aud.boost; far = true;   // el profesor suele estar lejos: siempre se refuerza antes de Whisper $("#optNs").checked = aud.ns; $("#wspModel").value = aud.model === "turbo" ? "turbo" : "small";
 listMics();
 renderTrans(); renderCtrl();
 if(auto && !segs.length) autoStart();
