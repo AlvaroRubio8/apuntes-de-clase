@@ -131,6 +131,8 @@ select{font:inherit;font-size:14px;color:inherit;background:var(--surface);borde
 const APP_URL = "https://claude.ai/artifact/6yk9EuSWzGexJXGJcuGJKd";
 const LS_KEY = "grabadora.v1";
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+// iPad, iPhone y móviles: modo ligero. Whisper en el navegador y el procesado de audio pueden congelarlos.
+const LIGHT = /iPad|iPhone|iPod|Android|Mobi/i.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 const $ = s => document.querySelector(s);
 
 // ---------- estado ----------
@@ -327,7 +329,7 @@ async function listMics(){
   if(sel.value !== aud.mic) sel.value = "";
 }
 function ensureGraph(){
-  if(liveCtx) return;
+  if(liveCtx || LIGHT) return;
   const AC = window.AudioContext || window.webkitAudioContext;
   if(!AC) return;
   try{
@@ -383,7 +385,7 @@ async function swapMic(){
 
 // Medidor de nivel y avisos
 const tbuf = new Float32Array(2048);
-function meterOn(){ if(!meterT){ lvl = []; hintAt = 0; meterT = setInterval(meterTick, 120); } }
+function meterOn(){ if(LIGHT) return; if(!meterT){ lvl = []; hintAt = 0; meterT = setInterval(meterTick, 120); } }
 function meterOff(){
   clearInterval(meterT); meterT = null; lvl = [];
   $("#meterBar").style.width = "0"; $("#meter").classList.remove("clip");
@@ -765,7 +767,10 @@ function toggleKey(i, onlyOn){
 $("#keyBtn").addEventListener("click", keyLast);
 $("#viewLive").addEventListener("click", () => { view = "live"; renderTrans(); });
 $("#viewFull").addEventListener("click", () => { view = "full"; renderTrans(); });
-$("#optWsp").addEventListener("change", wspStatus);
+$("#optWsp").addEventListener("change", () => {
+  if(LIGHT && $("#optWsp").checked) toast("Aviso: en iPad o móvil, Whisper descarga ~250 MB y puede congelar la página. Úsalo solo para probar.");
+  wspStatus();
+});
 $("#micSel").addEventListener("change", e => { aud.mic = e.target.value; saveAud(); swapMic(); });
 $("#optNs").addEventListener("change", e => { aud.ns = e.target.checked; saveAud(); swapMic(); });
 $("#optBoost").addEventListener("change", e => { aud.boost = e.target.checked; saveAud(); applyBoost(); lvl = []; });
@@ -873,6 +878,11 @@ if(auto && segs.length){
   $("#choice").classList.remove("hidden");
 } else if(nParam){ name = nParam; save(); }
 $("#fName").value = name;
+if(LIGHT){
+  $("#optWsp").checked = false;                     // en iPad/móvil, Whisper solo si lo activas tú
+  ["#testBtn", "#meter", "#micHint", "#optBoost", "#wspModel"].forEach(q => { const el = $(q); (el.closest("label") || el).classList.add("hidden"); });
+  aud.boost = false; aud.model = "small";
+}
 $("#optBoost").checked = aud.boost; $("#optNs").checked = aud.ns; $("#wspModel").value = aud.model === "turbo" ? "turbo" : "small";
 listMics();
 renderTrans(); renderCtrl();
