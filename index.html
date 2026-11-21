@@ -394,6 +394,12 @@ async function persist(){
   if(pending) saveSoon(1500);
 }
 
+// Espera a que termine un guardado en curso y guarda lo último (al cambiar o borrar clase)
+async function flush(){
+  for(let i = 0; saving && i < 150; i++) await new Promise(r => setTimeout(r, 100));
+  await persist();
+}
+
 async function removeSession(id){
   delete index[id];
   lsDel("s." + id); lsSet("index", index);
@@ -539,7 +545,8 @@ async function openSession(id){
   if(cur) commitKbd(true);
   if(clockOn) toggleClock();
   if(listening) stopRec();
-  await persist();
+  if(genCtl) genCtl.abort();
+  await flush();
   const s = await loadSession(id);
   if(!s){ toast("No se encontró esa clase"); renderSelect(); return; }
   cur = Object.assign(blank(), s);
@@ -551,7 +558,8 @@ async function newSession(){
   commitKbd(true);
   if(clockOn) toggleClock();
   if(listening) stopRec();
-  await persist();
+  if(genCtl) genCtl.abort();
+  await flush();
   const prev = cur;
   cur = blank();
   if(prev && prev.subject){ cur.subject = prev.subject; cur.teacher = prev.teacher; }
@@ -783,31 +791,37 @@ async function generate(){
   if(!sample){ toast("Generar apuntes no está disponible en esta vista"); return; }
   commitKbd(true);
   if(!cur.segs.length){ toast("Todavía no hay transcripción ni notas"); return; }
-  const prevNotes = cur.notes;
-  genCtl = new AbortController();
+  const s = cur;                       // la clase para la que se generan (aunque luego cambies de clase)
+  const prevNotes = s.notes;
+  const ctl = genCtl = new AbortController();
   $("#genBtn").classList.add("hidden"); $("#stopGenBtn").classList.remove("hidden");
   $("#genBtn").disabled = true;
   if(innerWidth <= 860) setTab("n");
-  cur.notes = ""; cur.notesAt = 0; renderNotes();
+  s.notes = ""; s.notesAt = 0; renderNotes();
   $("#notes").innerHTML = '<p class="note">Generando apuntes…</p>';
   try{
     const res = await sample(buildPrompt(listening), {
-      modelTier:"default", cache:false, signal:genCtl.signal,
-      onText: ({ text }) => { if(text && text !== "Thinking...") { cur.notes = text; renderNotes(); } }
+      modelTier:"default", cache:false, signal:ctl.signal,
+      onText: ({ text }) => { if(text && text !== "Thinking...") { s.notes = text; if(s === cur) renderNotes(); } }
     });
-    cur.notes = res.text; cur.notesAt = Date.now();
+    s.notes = res.text; s.notesAt = Date.now();
     if(res.truncated) toast("Los apuntes se han cortado por longitud. Prueba a generarlos por partes.");
   }catch(e){
-    if(e && e.text){ cur.notes = e.text; cur.notesAt = Date.now(); }
-    else cur.notes = prevNotes;
-    if(genCtl.signal.aborted) toast("Generación detenida");
+    if(e && e.text){ s.notes = e.text; s.notesAt = Date.now(); }
+    else s.notes = prevNotes;
+    if(ctl.signal.aborted) toast("Generación detenida");
     else if(e && e.code === "not_granted"){ sample = null; toast("Sin permiso para usar Claude en esta página"); }
     else if(e && e.code === "rate_limited") toast("Demasiadas peticiones seguidas. Espera un minuto y vuelve a intentarlo.");
     else toast("No se pudieron generar los apuntes" + (e && e.code ? " (" + e.code + ")" : ""));
   }finally{
-    genCtl = null;
+    if(genCtl === ctl) genCtl = null;
     $("#genBtn").classList.remove("hidden"); $("#stopGenBtn").classList.add("hidden"); $("#genBtn").disabled = !sample;
-    renderNotes(); saveSoon(300);
+    if(s === cur){ renderNotes(); saveSoon(300); }
+    else if(index[s.id]){            // cambiaste de clase mientras se generaba: guarda esa clase, no la abierta
+      const c = clone(s); c.updatedAt = Date.now();
+      lsSet("s." + c.id, c);
+      if(mode === "cloud") sesRef(c.id).set(c).catch(() => {});
+    }
   }
 }
 
@@ -914,7 +928,11 @@ $("#delCancel").addEventListener("click", () => $("#delDlg").close());
 $("#delOk").addEventListener("click", async () => {
   $("#delDlg").close();
   if(listening) stopRec();
-  clearTimeout(saveTimer);
+  if(clockOn) toggleClock();
+  if(genCtl) genCtl.abort();
+  $("#kbdIn").value = ""; kbdDone = 0; clearTimeout(kbdTimer);
+  for(let i = 0; saving && i < 150; i++) await new Promise(r => setTimeout(r, 100));
+  clearTimeout(saveTimer); dirty = false; pending = false;
   const id = cur.id; await removeSession(id);
   const next = Object.keys(index).sort((a, b) => (index[b].updatedAt||0) - (index[a].updatedAt||0))[0];
   cur = null;
