@@ -76,6 +76,9 @@ main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax
 .mic{width:100%;min-height:76px;border:none;border-radius:16px;background:var(--rec);color:#fff;display:flex;align-items:center;justify-content:center;gap:14px;font:600 24px/1 var(--font-ui);letter-spacing:.01em;box-shadow:0 2px 0 color-mix(in srgb,var(--rec) 60%,#000)}
 .mic:active{transform:translateY(1px)}
 a.mic{text-decoration:none}
+.mic.alt{min-height:46px;font-size:16px;font-weight:500;background:transparent;color:var(--ink);border:1px solid var(--line);box-shadow:none}
+.mic.alt .dot{width:12px;height:12px;background:var(--rec)}
+.mic.alt.on{background:var(--ink);color:var(--bg)}
 .mic .dot{width:22px;height:22px;border-radius:50%;background:#fff;flex:none}
 .mic.on{background:var(--ink);color:var(--bg);box-shadow:none}
 .mic.on .dot{border-radius:4px;background:var(--rec);animation:blink 1.2s infinite}
@@ -195,8 +198,8 @@ dialog::backdrop{background:rgba(10,12,18,.45)}
 <main id="main" data-tab="t">
   <section class="panel" id="pTrans" aria-label="Transcripción">
     <div class="recbar">
-      <button class="mic" id="micBtn" type="button"><span class="dot" aria-hidden="true"></span><span id="micLabel">Grabar</span></button>
-      <a class="mic hidden" id="grabLink" href="https://alvarorubio8.github.io/apuntes-de-clase/grabadora/"><span class="dot" aria-hidden="true"></span><span>Grabar en Safari</span></a>
+      <a class="mic" id="grabLink" href="https://alvarorubio8.github.io/apuntes-de-clase/grabadora/?auto=1" target="_blank" rel="noopener"><span class="dot" aria-hidden="true"></span><span>GRABAR</span></a>
+      <button class="mic alt" id="micBtn" type="button"><span class="dot" aria-hidden="true"></span><span id="micLabel">Transcribir aquí (sin audio)</span></button>
       <div class="recrow">
       <div class="recinfo">
         <span class="recstate" id="recState">Listo para transcribir</span>
@@ -450,22 +453,14 @@ function segEl(s, i){
 }
 
 function emptyHTML(){
-  if(!dict) return '<div class="empty"><h3>En clase con el iPad</h3><ol class="steps">' +
+  return '<div class="empty"><h3>Cómo usarla</h3><ol class="steps">' +
     '<li>Rellena asignatura, tema, profesor y fecha.</li>' +
-    '<li>Pulsa <b>Grabar en Safari</b>. Se abre la Grabadora: pulsa Grabar y la clase se escribe en directo. Usa ★ Clave en lo importante.</li>' +
-    '<li>Al acabar, en la Grabadora pulsa <b>Copiar y abrir Apuntes</b>.</li>' +
+    '<li>Pulsa <b>GRABAR</b>. Se abre la Grabadora en el navegador y empieza a grabar el audio y a transcribir a la vez. Usa ★ Clave en lo importante.</li>' +
+    '<li>Al acabar, en la Grabadora pulsa <b>Descargar audio</b> y después <b>Copiar y abrir Apuntes</b>.</li>' +
     '<li>Aquí, pulsa <b>Pegar transcripción</b>, pega e importa. Se conservan las horas y las ★.</li>' +
     '<li>Pulsa <b>Generar apuntes</b>.</li></ol>' +
-    '<p class="note">Plan B si la Grabadora falla: Notas de voz y «Pegar transcripción» al final.</p></div>';
-  const noDict = false;
-  return '<div class="empty"><h3>Cómo usarla</h3><ol>' +
-    '<li>Rellena asignatura, tema, profesor y fecha.</li>' +
-    '<li>Pulsa el micro rojo para empezar o pausar. Cada frase aparece con su hora.</li>' +
-    '<li>Cuando oigas algo importante, pulsa <b>★ Clave</b> (o la tecla K) para marcar la última frase.</li>' +
-    '<li>Pulsa <b>Generar apuntes</b> al final o a mitad de clase.</li></ol>' +
-    '<p class="note">Deja esta pestaña visible: si cambias de pestaña, la transcripción se pausa. El audio no se guarda, solo el texto.</p>' +
-    '<p class="note">¿Quieres guardar también el audio? Graba con la <a href="https://alvarorubio8.github.io/apuntes-de-clase/grabadora/">Grabadora</a> y al acabar pega aquí la transcripción con «Pegar transcripción».</p>' +
-    (noDict ? '<p class="note"><b>En este dispositivo no hay dictado en directo.</b> Usa el micro del teclado en la caja de arriba: el texto se añade como frase tras unos segundos de pausa. Para transcribir una clase entera sin tocar nada, usa el portátil con Chrome o Edge. Tus clases y apuntes se sincronizan entre todos tus dispositivos.</p>' : "") +
+    (dict ? '<p class="note">Si no necesitas el audio, pulsa <b>Transcribir aquí (sin audio)</b>: la clase se escribe en esta página y no tienes que pegar nada. Deja la pestaña visible.</p>'
+          : '<p class="note">Plan B si la Grabadora falla: Notas de voz y «Pegar transcripción» al final.</p>') +
     '</div>';
 }
 
@@ -500,18 +495,25 @@ function renderRecInfo(){
   $("#kbdIn").placeholder = dict ? "Escribe una nota o frase y pulsa Intro…" : "Toca aquí y pulsa el micro del teclado…";
   let label, state;
   if(dict){
-    label = listening ? "Pausar" : wantRec ? "Conectando…" : (cur.segs.length ? "Seguir grabando" : "Grabar");
-    state = listening ? "Transcribiendo…" : wantRec ? "Conectando…" : (cur.segs.length ? "En pausa" : "Listo para transcribir");
+    label = listening ? "Pausar transcripción" : wantRec ? "Conectando…" : (cur.segs.length ? "Seguir transcribiendo aquí (sin audio)" : "Transcribir aquí (sin audio)");
+    state = listening ? "Transcribiendo aquí…" : wantRec ? "Conectando…" : "Grabar abre la Grabadora: audio y texto a la vez";
   } else {
-    label = clockOn ? "Terminar clase" : (cur.recMs ? "Reanudar clase" : "Empezar clase");
-    state = "Graba en Safari con transcripción en directo";
+    label = "";
+    state = "Grabar abre la Grabadora: audio y texto a la vez";
   }
   $("#micLabel").textContent = label;
   mic.classList.toggle("hidden", !dict);
-  $("#grabLink").classList.toggle("hidden", !!dict);
+  $("#grabLink").href = grabUrl();
   mic.setAttribute("aria-label", label);
   mic.setAttribute("aria-pressed", live ? "true" : "false");
   $("#recState").textContent = state;
+}
+
+// Enlace a la Grabadora: empieza sola y usa el nombre de la clase para el archivo de audio
+const GRAB_URL = "https://alvarorubio8.github.io/apuntes-de-clase/grabadora/";
+function grabUrl(){
+  const n = [cur.subject, cur.topic].filter(Boolean).join(" - ");
+  return GRAB_URL + "?auto=1" + (n ? "&n=" + encodeURIComponent(n) : "");
 }
 
 function toggleClock(){
@@ -903,6 +905,11 @@ function setTab(t){
 // ---------- eventos ----------
 $("#micBtn").addEventListener("click", () => { if(!dict){ toggleClock(); return; } if(listening || wantRec) stopRec(); else startRec(); });
 $("#resumeBtn").addEventListener("click", () => startRec());
+$("#grabLink").addEventListener("click", e => {
+  e.currentTarget.href = grabUrl();
+  saveSoon(300);
+  setTimeout(() => toast("Al acabar, en la Grabadora pulsa «Copiar y abrir Apuntes» y aquí «Pegar transcripción»."), 400);
+});
 $("#keyBtn").addEventListener("click", keyLast);
 $("#kbdIn").addEventListener("input", () => { clearTimeout(kbdTimer); kbdTimer = setTimeout(() => commitKbd(false), 3500); });
 $("#kbdIn").addEventListener("keydown", e => { if(e.key === "Enter" && !e.shiftKey && !e.isComposing){ e.preventDefault(); commitKbd(true); } });

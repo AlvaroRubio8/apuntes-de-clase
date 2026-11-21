@@ -75,6 +75,7 @@ button:disabled{opacity:.45;cursor:default}
   </div>
 
   <div class="banner hidden" id="banner" role="status"><span id="bannerText"></span><button id="resumeBtn" type="button">Reanudar</button></div>
+  <div class="banner hidden" id="choice" role="status"><span id="choiceText"></span><button class="primary" id="choiceNew" type="button">Empezar nueva</button><button id="choiceKeep" type="button">Continuar la anterior</button></div>
 
   <div class="card trans" id="trans" aria-live="polite"></div>
 
@@ -100,7 +101,7 @@ const $ = s => document.querySelector(s);
 // ---------- estado ----------
 let segs = [], name = "", accMs = 0;
 let want = false, startAt = 0;
-let rec = null, srBlocked = false, interimText = "", fastEnds = [];
+let rec = null, srBlocked = false, srActive = false, interimText = "", fastEnds = [];
 let stream = null, mediaRec = null, chunks = [], mimeType = "", audioUrl = null, audioSaved = true;
 let wakeLock = null, clearArmed = 0, toastT = null;
 
@@ -177,7 +178,9 @@ function startSR(){
   rec = new SR();
   rec.lang = "es-ES"; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
   const r = rec, began = Date.now();
+  r.onstart = () => { srActive = true; if(want) hideBanner(); };
   r.onresult = e => {
+    srActive = true;
     let interim = "";
     for(let i = e.resultIndex; i < e.results.length; i++){
       const res = e.results[i];
@@ -289,7 +292,7 @@ async function copyText(text){
 
 // ---------- eventos ----------
 $("#recBtn").addEventListener("click", () => { if(want) pause(); else start(); });
-$("#resumeBtn").addEventListener("click", () => { hideBanner(); srBlocked = false; fastEnds = []; if(want){ startSR(); requestWake(); } else start(); });
+$("#resumeBtn").addEventListener("click", () => { hideBanner(); srBlocked = false; fastEnds = []; if(want){ startSR(); startAudio(); requestWake(); } else start(); });
 function keyLast(){
   if(!segs.length){ toast("Todavía no hay frases que marcar"); return; }
   toggleKey(segs.length - 1, true);
@@ -358,10 +361,35 @@ setInterval(() => { if(want) $("#timer").textContent = hms(elapsed()); }, 1000);
 setInterval(() => { if(want) save(); }, 10000);
 
 // ---------- arranque ----------
+function resetAll(){
+  releaseAudio(); chunks = []; audioSaved = true; updateAudioLink();
+  segs = []; accMs = 0; interimText = "";
+}
+// Si el navegador no deja empezar sin un clic, se pide uno
+function autoStart(){
+  start();
+  setTimeout(() => {
+    if(want && SR && !srActive && !srBlocked) showBanner("Pulsa Reanudar para empezar a transcribir.");
+  }, 3000);
+}
+$("#choiceNew").addEventListener("click", () => { $("#choice").classList.add("hidden"); resetAll(); save(); start(); });
+$("#choiceKeep").addEventListener("click", () => { $("#choice").classList.add("hidden"); start(); });
+
 load();
-$("#fName").value = name;
+const params = new URLSearchParams(location.search);
+const auto = params.get("auto") === "1";
+const nParam = (params.get("n") || "").trim();
+if(params.toString()){ try{ history.replaceState(null, "", location.pathname); }catch(e){} }   // recargar no vuelve a arrancar
 if(!SR) setState("Este navegador no transcribe en directo. Usa Chrome o Edge (o Safari actualizado).");
+if(auto && segs.length){
+  // Viene de Apuntes pero hay una grabación anterior: no se borra sin preguntar
+  if(nParam){ name = nParam; save(); }
+  $("#choiceText").textContent = "Hay una grabación anterior sin borrar (" + segs.length + (segs.length === 1 ? " frase" : " frases") + "). ¿La has pasado ya a tus Apuntes?";
+  $("#choice").classList.remove("hidden");
+} else if(nParam){ name = nParam; save(); }
+$("#fName").value = name;
 renderTrans(); renderCtrl();
+if(auto && !segs.length) autoStart();
 })();
 </script>
 </body>
