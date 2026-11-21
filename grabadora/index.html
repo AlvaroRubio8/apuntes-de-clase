@@ -67,6 +67,11 @@ select{font:inherit;font-size:14px;color:inherit;background:var(--surface);borde
 .meter.clip div{background:var(--rec)}
 .state.warn{color:var(--key)}
 .hidden{display:none !important}
+/* Mientras graba: solo controles y texto; la caja del texto llena la pantalla y lo último queda abajo, a la vista */
+body.recording main{height:100vh;height:100dvh;padding-block:12px;gap:10px}
+body.recording header,body.recording #nameCard,body.recording .mic,body.recording .out,body.recording .note{display:none}
+body.recording .trans{flex:1 1 auto;min-height:0;max-height:none;padding-bottom:22px}
+body.recording .ctrl{padding:10px 14px}
 </style>
 </head>
 <body>
@@ -76,7 +81,7 @@ select{font:inherit;font-size:14px;color:inherit;background:var(--surface);borde
     <p class="sub">Graba el audio y transcribe la clase a la vez. Después pasa la transcripción a tus Apuntes.</p>
   </header>
 
-  <div class="card">
+  <div class="card" id="nameCard">
     <input type="text" id="fName" placeholder="Nombre de la clase (opcional)" autocomplete="off">
   </div>
 
@@ -219,6 +224,9 @@ function renderTrans(){
 }
 function renderCtrl(){
   $("#recBtn").classList.toggle("on", want);
+  const wasRec = document.body.classList.contains("recording");
+  document.body.classList.toggle("recording", want);
+  if(want && !wasRec){ const box = $("#trans"); box.scrollTop = box.scrollHeight; }
   $("#recBtn").setAttribute("aria-pressed", want ? "true" : "false");
   $("#recLabel").textContent = want ? "Pausar" : (segs.length || accMs ? "Seguir grabando" : "Grabar");
   $("#optAudio").disabled = want || chunks.length > 0;
@@ -239,7 +247,12 @@ function addSeg(text){
   else { const box = $("#trans"); const near = box.scrollHeight - box.scrollTop - box.clientHeight < 80; box.insertBefore(segEl(s, segs.length - 1), $("#interim")); if(near) box.scrollTop = box.scrollHeight; }
   renderCtrl(); save();
 }
-function setInterim(t){ interimText = t; const it = $("#interim"); if(it) it.textContent = t; }
+function setInterim(t){
+  interimText = t; const it = $("#interim"); if(!it) return;
+  const box = $("#trans"), near = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
+  it.textContent = t;
+  if(near) box.scrollTop = box.scrollHeight;   // lo que se está diciendo, siempre a la vista
+}
 
 function startSR(){
   if(!SR || srBlocked) return;
