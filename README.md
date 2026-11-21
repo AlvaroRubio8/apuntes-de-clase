@@ -10,6 +10,8 @@ Es una aplicación web que transcribe una clase en directo usando solo el micró
 - **Corrección automática**: al generar los apuntes se corrigen los errores evidentes del reconocimiento de voz, y lo dudoso queda marcado con (¿?).
 - **Edición y pegado**: puedes corregir la transcripción a mano o pegar una de Teams o Zoom.
 - **Historial privado** por sesión y asignatura, con un selector para pasar de una clase a otra.
+- **Grabadora con mejor captación**: puedes elegir el micrófono, probarlo antes de clase con un medidor de nivel y activar «Profesor lejos» para reforzar la voz. La página avisa si el sonido llega débil o satura.
+- **Whisper más preciso**: hay una opción de precisión «Máxima» (large-v3-turbo, con tarjeta gráfica). Antes de transcribir se quitan los silencios largos y se filtran las frases inventadas y repetidas.
 - **Exportación** a Markdown, con la transcripción incluida, o a Word. Los apuntes también se pueden copiar directamente.
 
 ## Uso

@@ -57,6 +57,15 @@ button:disabled{opacity:.45;cursor:default}
 .views button[aria-selected="true"]{color:var(--ink);font-weight:600;background:var(--surface)}
 .seg.w time{color:var(--accent)}
 .toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;max-width:90vw;z-index:9}
+.mic{display:flex;flex-direction:column;gap:10px}
+.microw{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px}
+select{font:inherit;font-size:14px;color:inherit;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 8px;max-width:100%}
+.microw .grow{flex:1 1 260px;min-width:0}
+.microw .grow select{flex:1;min-width:0}
+.meter{height:10px;border-radius:999px;background:var(--line);overflow:hidden}
+.meter div{height:100%;width:0;background:var(--accent);transition:width .1s linear}
+.meter.clip div{background:var(--rec)}
+.state.warn{color:var(--key)}
 .hidden{display:none !important}
 </style>
 </head>
@@ -81,6 +90,20 @@ button:disabled{opacity:.45;cursor:default}
     <div class="state wsp" id="wspState"></div>
   </div>
 
+  <div class="card mic">
+    <div class="microw">
+      <label class="opt grow">Micrófono <select id="micSel"><option value="">El predeterminado del sistema</option></select></label>
+      <button id="testBtn" type="button">Probar micrófono</button>
+    </div>
+    <div class="meter" id="meter" aria-hidden="true"><div id="meterBar"></div></div>
+    <div class="state" id="micHint">Antes de clase, pulsa «Probar micrófono» y habla: la barra debe moverse a la mitad o más.</div>
+    <div class="microw">
+      <label class="opt"><input type="checkbox" id="optBoost"> Profesor lejos: reforzar la voz</label>
+      <label class="opt"><input type="checkbox" id="optNs" checked> Reducir ruido</label>
+      <label class="opt">Precisión de Whisper <select id="wspModel"><option value="small">Normal (~250 MB)</option><option value="turbo">Máxima (tarjeta gráfica, ~1,3 GB)</option></select></label>
+    </div>
+  </div>
+
   <div class="banner hidden" id="banner" role="status"><span id="bannerText"></span><button id="resumeBtn" type="button">Reanudar</button></div>
   <div class="banner hidden" id="choice" role="status"><span id="choiceText"></span><button class="primary" id="choiceNew" type="button">Empezar nueva</button><button id="choiceKeep" type="button">Continuar la anterior</button></div>
 
@@ -98,6 +121,7 @@ button:disabled{opacity:.45;cursor:default}
   </div>
 
   <p class="note">Usa Chrome o Edge en el ordenador. La transcripción en directo se pausa si cambias de pestaña; la completa (Whisper) no, porque sale del audio: transcribe en tu ordenador bloques de 5 minutos mientras sigues grabando. La primera vez descarga el modelo (unos 250-600 MB) y luego queda guardado. Al copiar se usa la completa y, donde aún no esté, la de directo. El texto se guarda solo; el audio no, así que descárgalo antes de cerrar la página.</p>
+  <p class="note">El micrófono elegido, el refuerzo de voz y la reducción de ruido se aplican al audio guardado y a Whisper. La transcripción en directo usa siempre el micrófono predeterminado del sistema. «Máxima» usa Whisper large-v3-turbo: es bastante más preciso pero necesita tarjeta gráfica con WebGPU; si no la hay, se usa la Normal. Antes de mandar el audio a Whisper se quitan los silencios largos, que es donde suele inventarse frases.</p>
 </main>
 <div class="toast hidden" id="toast"></div>
 
@@ -120,7 +144,7 @@ const SEG_MS = window.__SEG_MS || 5 * 60 * 1000;
 let blocks = [];                       // bloques ya transcritos: {t0, t1, lines:[{t, x}]}
 let wq = [], wspBusy = false, gen = 0; // cola de bloques pendientes
 let segRec = null, segT0 = 0, segTimer = null, stopping = 0;
-let worker = null, wspReady = false, wspDevice = "", wspLoad = "";
+let worker = null, wspReady = false, wspDevice = "", wspLoad = "", wspModel = "";
 
 // ---------- utilidades ----------
 const pad = n => String(n).padStart(2, "0");
@@ -197,6 +221,7 @@ function renderCtrl(){
   $("#recLabel").textContent = want ? "Pausar" : (segs.length || accMs ? "Seguir grabando" : "Grabar");
   $("#optAudio").disabled = want || chunks.length > 0;
   $("#optWsp").disabled = want;
+  $("#testBtn").disabled = want;
   $("#timer").textContent = hms(elapsed());
   const has = segs.length > 0 || blocks.length > 0;
   $("#copyBtn").disabled = !has; $("#copyOpenBtn").disabled = !has;
@@ -263,25 +288,177 @@ function pickMime(){
   for(const t of opts){ try{ if(MediaRecorder.isTypeSupported(t)) return t; }catch(e){} }
   return "";
 }
+// ---------- micrófono: elección, refuerzo de voz y medidor ----------
+// El audio pasa por: filtro de graves (quita zumbidos y golpes en la mesa) → compresor + ganancia
+// (si «Profesor lejos») → grabadoras. Si el navegador no deja activar el procesado, se graba el audio tal cual.
+const AUD_KEY = "grabadora.audio.v1";
+const aud = { mic: "", boost: false, ns: true, model: "small" };
+try{ Object.assign(aud, JSON.parse(localStorage.getItem(AUD_KEY) || "{}")); }catch(e){}
+function saveAud(){ try{ localStorage.setItem(AUD_KEY, JSON.stringify(aud)); }catch(e){} }
+let liveCtx = null, srcNode = null, hpNode = null, compNode = null, gainNode = null, analyser = null, dest = null;
+let testing = false, testT = null, meterT = null, lvl = [], hintAt = 0;
+
+function micConstraints(){
+  const a = { echoCancellation: false, noiseSuppression: aud.ns, autoGainControl: true, channelCount: 1 };
+  if(aud.mic) a.deviceId = { exact: aud.mic };
+  return { audio: a };
+}
+async function openMic(){
+  let s;
+  try{ s = await navigator.mediaDevices.getUserMedia(micConstraints()); }
+  catch(e){
+    if(!aud.mic || !/Overconstrained|NotFound|NotReadable/.test(e.name || "")) throw e;
+    aud.mic = ""; saveAud();
+    s = await navigator.mediaDevices.getUserMedia(micConstraints());
+    toast("No se encuentra el micrófono elegido: se usa el predeterminado.");
+  }
+  listMics();
+  return s;
+}
+async function listMics(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  let devs = [];
+  try{ devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === "audioinput" && d.deviceId && d.deviceId !== "default" && d.deviceId !== "communications"); }catch(e){ return; }
+  const sel = $("#micSel");
+  sel.innerHTML = "";
+  sel.append(new Option("El predeterminado del sistema", ""));
+  devs.forEach((d, i) => sel.append(new Option(d.label || "Micrófono " + (i + 1), d.deviceId)));
+  sel.value = aud.mic;
+  if(sel.value !== aud.mic) sel.value = "";
+}
+function ensureGraph(){
+  if(liveCtx) return;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if(!AC) return;
+  try{
+    liveCtx = new AC();
+    hpNode = liveCtx.createBiquadFilter(); hpNode.type = "highpass"; hpNode.frequency.value = 85; hpNode.Q.value = 0.7;
+    compNode = liveCtx.createDynamicsCompressor();
+    gainNode = liveCtx.createGain();
+    analyser = liveCtx.createAnalyser(); analyser.fftSize = 2048;
+    dest = liveCtx.createMediaStreamDestination();
+    try{ dest.channelCount = 1; }catch(e){}
+    hpNode.connect(compNode); compNode.connect(gainNode); gainNode.connect(dest); gainNode.connect(analyser);
+    applyBoost();
+  }catch(e){ liveCtx = null; }
+}
+function applyBoost(){
+  if(!compNode) return;
+  const t = liveCtx.currentTime, set = (p, v) => p.setValueAtTime(v, t);
+  // Refuerzo: el compresor ya sube ~18 dB la voz débil (ganancia automática) y frena los picos; ×2 más, sin saturar
+  if(aud.boost){ set(compNode.threshold, -45); set(compNode.knee, 15); set(compNode.ratio, 6); set(compNode.attack, 0.005); set(compNode.release, 0.3); set(gainNode.gain, 2); }
+  else { set(compNode.threshold, -6); set(compNode.knee, 6); set(compNode.ratio, 3); set(compNode.attack, 0.003); set(compNode.release, 0.25); set(gainNode.gain, 1); }
+}
+function graphOn(){ return !!(liveCtx && liveCtx.state === "running" && srcNode); }
+async function connectMic(){
+  ensureGraph();
+  if(!liveCtx || !stream) return;
+  try{ if(srcNode) srcNode.disconnect(); }catch(e){}
+  try{ srcNode = liveCtx.createMediaStreamSource(stream); srcNode.connect(hpNode); }catch(e){ srcNode = null; }
+  if(liveCtx.state !== "running"){ try{ await Promise.race([liveCtx.resume(), new Promise(r => setTimeout(r, 400))]); }catch(e){} }
+}
+function disconnectMic(){ try{ if(srcNode) srcNode.disconnect(); }catch(e){} srcNode = null; }
+// Lo que se graba: el audio procesado si está activo; si no, el del micrófono tal cual
+function recSrc(){ return graphOn() ? dest.stream : stream; }
+function newRec(){
+  const src = recSrc();
+  const r = mimeType ? new MediaRecorder(src, { mimeType, audioBitsPerSecond: 48000 }) : new MediaRecorder(src);
+  r.__raw = src === stream;
+  return r;
+}
+function rawInUse(){ return [mediaRec, segRec].some(r => r && r.state !== "inactive" && r.__raw); }
+
+// Cambiar de micrófono o de reducción de ruido sin cortar la grabación
+async function swapMic(){
+  if(!stream) return;
+  if(rawInUse()){ toast("El cambio se aplicará en la próxima grabación (pulsa «Nueva grabación» o recarga la página)."); return; }
+  let s;
+  try{ s = await openMic(); }catch(e){ toast("No se pudo abrir ese micrófono."); return; }
+  if(!stream){ s.getTracks().forEach(t => t.stop()); return; }
+  const old = stream; stream = s;
+  await connectMic();
+  old.getTracks().forEach(t => t.stop());
+  lvl = []; toast("Micrófono actualizado");
+}
+
+// Medidor de nivel y avisos
+const tbuf = new Float32Array(2048);
+function meterOn(){ if(!meterT){ lvl = []; hintAt = 0; meterT = setInterval(meterTick, 120); } }
+function meterOff(){
+  clearInterval(meterT); meterT = null; lvl = [];
+  $("#meterBar").style.width = "0"; $("#meter").classList.remove("clip");
+  setHint("Antes de clase, pulsa «Probar micrófono» y habla: la barra debe moverse a la mitad o más.", false);
+}
+function setHint(msg, warn){ const h = $("#micHint"); h.textContent = msg; h.classList.toggle("warn", !!warn); }
+function meterTick(){
+  if(!stream || !(want || testing)){ meterOff(); return; }
+  if(!graphOn()){
+    $("#meterBar").style.width = "0";
+    setHint(liveCtx ? "Toca cualquier parte de la página para activar el medidor y el refuerzo de voz." : "Este navegador no permite medir el nivel del micrófono.", true);
+    return;
+  }
+  analyser.getFloatTimeDomainData(tbuf);
+  let s = 0, pk = 0;
+  for(let i = 0; i < tbuf.length; i++){ const v = tbuf[i]; s += v * v; const a = v < 0 ? -v : v; if(a > pk) pk = a; }
+  const db = 10 * Math.log10(s / tbuf.length + 1e-12);
+  $("#meterBar").style.width = Math.max(0, Math.min(100, (db + 66) / 60 * 100)) + "%";
+  $("#meter").classList.toggle("clip", pk > 0.98);
+  lvl.push({ db, pk }); if(lvl.length > 70) lvl.shift();   // ~8 s
+  const now = Date.now();
+  if(lvl.length < 25 || now - hintAt < 1000) return;
+  hintAt = now;
+  const sorted = lvl.map(l => l.db).sort((a, b) => a - b);
+  const loud = sorted[Math.floor(sorted.length * 0.9)];
+  const clips = lvl.filter(l => l.pk > 0.98).length / lvl.length;
+  if(loud < -58) setHint("Casi no llega sonido. Revisa qué micrófono está elegido o si está silenciado.", true);
+  else if(loud < -40) setHint(aud.boost ? "La voz llega débil aun reforzada. Acerca el portátil al profesor o usa un micrófono externo." : "La voz llega débil. Activa «Profesor lejos: reforzar la voz» o acerca el portátil.", true);
+  else if(clips > 0.05) setHint(aud.boost ? "El sonido satura. Desactiva «Profesor lejos: reforzar la voz»." : "El sonido satura. Aleja un poco el micrófono.", true);
+  else setHint("El sonido llega bien.", false);
+}
+function stopTest(){
+  testing = false; clearTimeout(testT);
+  $("#testBtn").textContent = "Probar micrófono";
+  if(!want && stream && !mediaRec && !segRec){ disconnectMic(); stream.getTracks().forEach(t => t.stop()); stream = null; }
+  if(!want) meterOff();
+}
+async function startTest(){
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ toast("Este navegador no puede usar el micrófono."); return; }
+  testing = true; $("#testBtn").textContent = "Parar prueba";
+  ensureGraph();
+  if(liveCtx && liveCtx.state !== "running"){ try{ liveCtx.resume(); }catch(e){} }   // dentro del clic
+  if(!stream){
+    try{ stream = await openMic(); }catch(e){ toast("Sin permiso para usar el micrófono."); stopTest(); return; }
+    if(!testing && !want){ stream.getTracks().forEach(t => t.stop()); stream = null; return; }
+  }
+  await connectMic();
+  meterOn();
+  clearTimeout(testT); testT = setTimeout(() => { if(testing) stopTest(); }, 30000);
+}
+
 async function startAudio(){
-  if(!$("#optAudio").checked) return;
   const keep = $("#optAudio").checked, wsp = $("#optWsp").checked;
   if(!keep && !wsp) return;
-  if(!stream){
+  ensureGraph();
+  if(liveCtx && liveCtx.state !== "running"){ try{ liveCtx.resume(); }catch(e){} }   // aún dentro del clic de Grabar
+  if(!mimeType){
     const mt = pickMime();
     if(mt === null || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ toast("Este navegador no puede grabar audio: solo transcripción en directo."); return; }
-    try{
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true, autoGainControl: true } });
-    }catch(e){ toast("Sin permiso para grabar audio: solo transcripción en directo."); return; }
-    if(!want){ stream.getTracks().forEach(t => t.stop()); stream = null; return; }
     mimeType = mt || "";
   }
+  if(!stream){
+    try{ stream = await openMic(); }
+    catch(e){ toast("Sin permiso para grabar audio: solo transcripción en directo."); return; }
+    if(!want){ stream.getTracks().forEach(t => t.stop()); stream = null; return; }
+  }
+  if(!graphOn()) await connectMic();
+  if(testing){ testing = false; clearTimeout(testT); $("#testBtn").textContent = "Probar micrófono"; }
+  meterOn();
   // Grabación continua, para descargar
   if(keep){
     if(mediaRec && mediaRec.state === "paused") mediaRec.resume();
     else if(!mediaRec){
       try{
-        mediaRec = mimeType ? new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 48000 }) : new MediaRecorder(stream);
+        mediaRec = newRec();
         mimeType = mediaRec.mimeType || mimeType || "audio/webm";
         mediaRec.ondataavailable = e => { if(e.data && e.data.size){ chunks.push(e.data); audioSaved = false; updateAudioLink(); } };
         mediaRec.start(5000);
@@ -297,31 +474,40 @@ async function startAudio(){
 const WORKER_SRC = window.__WSP_WORKER_SRC || `
 import { pipeline, env } from "https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2";
 env.allowLocalModels = false;
-const MODEL = "onnx-community/whisper-small";
+const MODELS = { small: "onnx-community/whisper-small", turbo: "onnx-community/whisper-large-v3-turbo" };
 let asr = null, loading = null;
 const progress = d => { if(d.status === "progress_total") postMessage({ type: "progress", p: d.progress, loaded: d.loaded, total: d.total }); };
-async function make(device, dtype){ return pipeline("automatic-speech-recognition", MODEL, { device, dtype, progress_callback: progress }); }
-async function load(){
+async function make(model, device, dtype){ return pipeline("automatic-speech-recognition", MODELS[model], { device, dtype, progress_callback: progress }); }
+async function load(want){
   if(asr) return asr;
   if(!loading) loading = (async () => {
     let gpu = null;
     try{ if(navigator.gpu) gpu = await navigator.gpu.requestAdapter(); }catch(e){}
-    if(gpu){
+    const f16 = !!(gpu && gpu.features.has("shader-f16"));
+    // Máxima precisión: solo con tarjeta gráfica que admita fp16 (si no, no cabe o va demasiado lenta)
+    if(want === "turbo" && f16){
       try{
-        asr = await make("webgpu", { encoder_model: gpu.features.has("shader-f16") ? "fp16" : "fp32", decoder_model_merged: "q4" });
-        postMessage({ type: "ready", device: "webgpu" }); return asr;
+        asr = await make("turbo", "webgpu", { encoder_model: "fp16", decoder_model_merged: "q4" });
+        postMessage({ type: "ready", device: "webgpu", model: "turbo" }); return asr;
       }catch(e){}
     }
-    asr = await make("wasm", { encoder_model: "q8", decoder_model_merged: "q8" });
-    postMessage({ type: "ready", device: "wasm" }); return asr;
+    if(gpu){
+      try{
+        asr = await make("small", "webgpu", { encoder_model: f16 ? "fp16" : "fp32", decoder_model_merged: "q4" });
+        postMessage({ type: "ready", device: "webgpu", model: "small", fallback: want === "turbo" }); return asr;
+      }catch(e){}
+    }
+    asr = await make("small", "wasm", { encoder_model: "q8", decoder_model_merged: "q8" });
+    postMessage({ type: "ready", device: "wasm", model: "small", fallback: want === "turbo" }); return asr;
   })();
   return loading;
 }
+let wanted = "small";
 onmessage = async e => {
-  if(e.data && e.data.type === "load"){ load().catch(err => { loading = null; postMessage({ type: "loaderror", message: String((err && err.message) || err) }); }); return; }
+  if(e.data && e.data.type === "load"){ wanted = e.data.model || "small"; load(wanted).catch(err => { loading = null; postMessage({ type: "loaderror", message: String((err && err.message) || err) }); }); return; }
   const { id, audio } = e.data;
   try{
-    const a = await load();
+    const a = await load(wanted);
     const out = await a(audio, { language: "spanish", task: "transcribe", chunk_length_s: 30, stride_length_s: 5, return_timestamps: true });
     postMessage({ type: "result", id, chunks: out.chunks && out.chunks.length ? out.chunks : [{ timestamp: [0, null], text: out.text || "" }] });
   }catch(err){
@@ -336,15 +522,21 @@ function getWorker(){
   worker.onmessage = e => {
     const m = e.data;
     if(m.type === "progress"){ wspLoad = "Descargando el modelo de Whisper (solo la primera vez): " + Math.round(m.p || 0) + " %"; wspStatus(); }
-    else if(m.type === "ready"){ wspReady = true; wspDevice = m.device; wspLoad = ""; wspStatus(); }
+    else if(m.type === "ready"){
+      wspReady = true; wspDevice = m.device; wspModel = m.model; wspLoad = ""; wspStatus();
+      if(m.fallback) toast("Este ordenador no puede usar la precisión Máxima: se usa la Normal.");
+    }
     else if(m.type === "loaderror"){ wspLoad = "No se pudo cargar Whisper (" + (m.message || "").slice(0, 80) + "). Se usará la transcripción en directo; se reintentará con el siguiente bloque."; wspStatus(); }
     else if((m.type === "result" || m.type === "error") && wspPending && wspPending.id === m.id){ const p = wspPending; wspPending = null; p.done(m); }
   };
-  worker.postMessage({ type: "load" });
+  worker.__model = aud.model;
+  worker.postMessage({ type: "load", model: aud.model });
   worker.onerror = () => { if(wspPending){ const p = wspPending; wspPending = null; p.done({ type: "error", message: "worker" }); } };
   return worker;
 }
+function resetWorker(){ try{ if(worker) worker.terminate(); }catch(e){} worker = null; wspReady = false; wspModel = ""; }
 function runWorker(audio){
+  if(worker && worker.__model !== aud.model) resetWorker();   // se cambió la precisión
   return new Promise(done => {
     const id = Date.now() + Math.random();
     wspPending = { id, done };
@@ -355,7 +547,7 @@ function runWorker(audio){
 function startBlock(){
   if(!stream) return;
   try{
-    segRec = mimeType ? new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 48000 }) : new MediaRecorder(stream);
+    segRec = newRec();
   }catch(e){ segRec = null; return; }
   const r = segRec, parts = [], t0 = Date.now();
   r.ondataavailable = e => { if(e.data && e.data.size) parts.push(e.data); };
@@ -385,16 +577,74 @@ async function decode16k(blob){
   for(let i = 0; i < a.length; i++) out[i] = (a[i] + b[i]) / 2;
   return out;
 }
+// Quita los silencios largos antes de Whisper (ahí es donde se inventa frases) y sube el volumen
+// si la voz llega baja. Devuelve el audio recortado y un mapa para devolver cada frase a su hora real.
+const VAD_HZ = 16000, VAD_F = 320;   // tramos de 20 ms
+function voiceOnly(x){
+  const n = Math.floor(x.length / VAD_F);
+  if(n < 50) return { audio: x, map: null };
+  const db = new Float32Array(n);
+  for(let f = 0; f < n; f++){
+    let s = 0; const o = f * VAD_F;
+    for(let j = 0; j < VAD_F; j++){ const v = x[o + j]; s += v * v; }
+    db[f] = 10 * Math.log10(s / VAD_F + 1e-10);
+  }
+  const sorted = Array.from(db).sort((a, b) => a - b);
+  const floor = sorted[Math.floor(n * 0.15)], top = sorted[Math.floor(n * 0.97)];
+  if(top < -62) return { audio: null, map: null };                 // silencio de verdad
+  let out = x, map = null;
+  if(top - floor >= 10){                                            // si no se distingue voz de fondo, no se recorta
+    const thr = Math.max(floor + 6, -62), PAD = 20, GAP = 60, MIN = 12;   // 0,4 s de margen; une huecos < 1,2 s
+    const regs = [];
+    let a = -1, last = -1;
+    for(let f = 0; f < n; f++){
+      if(db[f] <= thr) continue;
+      if(a < 0){ a = f; last = f; continue; }
+      if(f - last > GAP){ regs.push([a, last]); a = f; }
+      last = f;
+    }
+    if(a >= 0) regs.push([a, last]);
+    const keep = regs.filter(r => r[1] - r[0] + 1 >= MIN).map(r => [Math.max(0, r[0] - PAD) * VAD_F, Math.min(n, r[1] + 1 + PAD) * VAD_F]);
+    const total = keep.reduce((t, r) => t + r[1] - r[0], 0);
+    if(total < VAD_HZ) return { audio: null, map: null };            // menos de 1 s de voz
+    if(total < x.length * 0.9){
+      const SIL = Math.round(VAD_HZ * 0.3);                          // 0,3 s de pausa entre trozos
+      out = new Float32Array(total + SIL * (keep.length - 1));
+      map = []; let o = 0;
+      keep.forEach((r, i) => {
+        if(i) o += SIL;
+        out.set(x.subarray(r[0], r[1]), o);
+        map.push({ o, i: r[0], n: r[1] - r[0] });
+        o += r[1] - r[0];
+      });
+    }
+  }
+  // Normaliza: la voz más fuerte del bloque a ~90 % (como mucho ×10, para no inflar el ruido)
+  let pk = 0;
+  for(let i = 0; i < out.length; i++){ const v = out[i] < 0 ? -out[i] : out[i]; if(v > pk) pk = v; }
+  const g = pk > 0 ? Math.min(0.9 / pk, 10) : 1;
+  if(g > 1.1){ if(out === x) out = x.slice(); for(let i = 0; i < out.length; i++) out[i] *= g; }
+  return { audio: out, map };
+}
+function realSec(map, sec){
+  if(!map) return sec;
+  const s = sec * VAD_HZ;
+  for(let k = map.length - 1; k >= 0; k--) if(s >= map[k].o) return (map[k].i + Math.min(s - map[k].o, map[k].n)) / VAD_HZ;
+  return map.length ? map[0].i / VAD_HZ : sec;
+}
 // Frases que Whisper inventa en silencios
-const HALLU = /amara\.org|suscr[ií]bete|gracias por ver|subt[ií]tulos (realizados|por|hechos)|¡?gracias\.?!?$/i;
-function cleanLines(chunks, t0){
+const HALLU = /amara\.org|suscr[ií]b|gracias por (ver|vernos)|subt[ií]tulos (realizados|por|hechos)|^\W*(m[uú]sica|aplausos|risas|silencio)\W*$|^\W*¡?(muchas )?gracias\W*$/i;
+// «sí, sí, sí, sí…» o la misma frase repetida en bucle → una sola vez
+const LOOP = /(?<![\p{L}\p{N}])([\p{L}\p{N}][^.!?\n]{0,60}?)(?:[\s,.;:¡!¿?-]+\1(?![\p{L}\p{N}])){2,}/giu;
+function deloop(x){ let y = x, prev; do{ prev = y; y = y.replace(LOOP, "$1"); }while(y !== prev); return y; }
+function cleanLines(chunks, t0, map){
   const lines = [];
   chunks.forEach(c => {
-    const x = (c.text || "").replace(/\s+/g, " ").trim();
-    if(!x || HALLU.test(x) && x.length < 60) return;
-    if(lines.length && lines[lines.length - 1].x === x) return;   // repeticiones
+    const x = deloop((c.text || "").replace(/\s+/g, " ").trim());
+    if(!x || !/[\p{L}\p{N}]/u.test(x) || HALLU.test(x) && x.length < 60) return;
+    if(lines.length && lines[lines.length - 1].x.toLowerCase() === x.toLowerCase()) return;   // repeticiones
     const st = c.timestamp && typeof c.timestamp[0] === "number" ? c.timestamp[0] : 0;
-    lines.push({ t: Math.round(t0 + st * 1000), x: x.charAt(0).toUpperCase() + x.slice(1) });
+    lines.push({ t: Math.round(t0 + realSec(map, st) * 1000), x: x.charAt(0).toUpperCase() + x.slice(1) });
   });
   return lines;
 }
@@ -404,13 +654,19 @@ async function processQueue(){
   while(wq.length){
     const job = wq[0];
     wspStatus();
-    let res;
-    try{ res = await runWorker(await decode16k(job.blob)); }
+    let res, map = null;
+    try{
+      const raw = await decode16k(job.blob), v = voiceOnly(raw);
+      const live = segs.some(s => s.t >= job.t0 && s.t <= job.t1);
+      if(v.audio) { map = v.map; res = await runWorker(v.audio); }
+      else if(live) res = await runWorker(raw);                    // el directo sí oyó algo: mejor no fiarse del recorte
+      else res = { type: "result", chunks: [] };                   // bloque en silencio
+    }
     catch(e){ res = { type: "error", message: "No se pudo leer el audio" }; }
     wq.shift();
     if(job.gen !== gen) continue;                 // se pulsó «Nueva grabación»
     if(res.type === "result"){
-      blocks.push({ t0: job.t0, t1: job.t1, lines: cleanLines(res.chunks, job.t0) });
+      blocks.push({ t0: job.t0, t1: job.t1, lines: cleanLines(res.chunks, job.t0, map) });
       blocks.sort((a, b) => a.t0 - b.t0);
       save(); renderCtrl();
       if(view === "full") renderTrans();
@@ -428,7 +684,7 @@ function wspStatus(){
   if(wspLoad){ el.textContent = wspLoad; return; }
   const mins = Math.round(blocks.reduce((n, b) => n + (b.t1 - b.t0), 0) / 60000);
   const pend = wq.length;
-  if(pend) el.textContent = "Transcripción completa: procesando " + pend + (pend === 1 ? " bloque" : " bloques") + "… (" + mins + " min hechos" + (wspDevice ? ", " + (wspDevice === "webgpu" ? "con la tarjeta gráfica" : "con el procesador") : "") + ")";
+  if(pend) el.textContent = "Transcripción completa: procesando " + pend + (pend === 1 ? " bloque" : " bloques") + "… (" + mins + " min hechos" + (wspDevice ? ", " + (wspModel === "turbo" ? "precisión máxima, " : "") + (wspDevice === "webgpu" ? "con la tarjeta gráfica" : "con el procesador") : "") + ")";
   else if(blocks.length) el.textContent = "Transcripción completa al día: " + mins + " min" + (want ? " · el bloque en curso se procesa a los " + Math.round(SEG_MS / 60000) + " min o al pausar" : " ✓");
   else el.textContent = want ? "Transcripción completa: el primer bloque se procesa a los " + Math.round(SEG_MS / 60000) + " min o al pausar" : "";
 }
@@ -450,8 +706,10 @@ function updateAudioLink(){
 function releaseAudio(){
   try{ if(mediaRec && mediaRec.state !== "inactive") mediaRec.stop(); }catch(e){}
   endBlock();
+  disconnectMic();
   if(stream) stream.getTracks().forEach(t => t.stop());
   stream = null; mediaRec = null;
+  if(testing) stopTest(); else if(!want) meterOff();
 }
 
 // ---------- grabar / pausar ----------
@@ -508,6 +766,20 @@ $("#keyBtn").addEventListener("click", keyLast);
 $("#viewLive").addEventListener("click", () => { view = "live"; renderTrans(); });
 $("#viewFull").addEventListener("click", () => { view = "full"; renderTrans(); });
 $("#optWsp").addEventListener("change", wspStatus);
+$("#micSel").addEventListener("change", e => { aud.mic = e.target.value; saveAud(); swapMic(); });
+$("#optNs").addEventListener("change", e => { aud.ns = e.target.checked; saveAud(); swapMic(); });
+$("#optBoost").addEventListener("change", e => { aud.boost = e.target.checked; saveAud(); applyBoost(); lvl = []; });
+$("#wspModel").addEventListener("change", e => {
+  aud.model = e.target.value; saveAud();
+  if(worker && !wspBusy){ resetWorker(); if(want && segRec) getWorker(); }   // si está ocupado, cambia en el siguiente bloque
+  if(aud.model === "turbo") toast("Precisión máxima: la primera vez descarga ~1,3 GB. Necesita tarjeta gráfica; si no, se usa la Normal.");
+});
+$("#testBtn").addEventListener("click", () => { if(testing) stopTest(); else startTest(); });
+// El procesado de audio necesita un toque en la página si la grabación arrancó sola
+["pointerdown", "keydown"].forEach(ev => document.addEventListener(ev, () => {
+  if(liveCtx && liveCtx.state !== "running"){ try{ liveCtx.resume(); }catch(e){} }
+}, true));
+if(navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener("devicechange", listMics);
 $("#trans").addEventListener("click", e => { const b = e.target.closest(".st"); if(b) toggleKey(+b.parentElement.dataset.i); });
 document.addEventListener("keydown", e => {
   if((e.key === "k" || e.key === "K") && !e.metaKey && !e.ctrlKey && !e.altKey && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)){ e.preventDefault(); keyLast(); }
@@ -601,6 +873,8 @@ if(auto && segs.length){
   $("#choice").classList.remove("hidden");
 } else if(nParam){ name = nParam; save(); }
 $("#fName").value = name;
+$("#optBoost").checked = aud.boost; $("#optNs").checked = aud.ns; $("#wspModel").value = aud.model === "turbo" ? "turbo" : "small";
+listMics();
 renderTrans(); renderCtrl();
 if(auto && !segs.length) autoStart();
 })();
