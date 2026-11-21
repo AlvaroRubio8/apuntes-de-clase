@@ -196,7 +196,7 @@ dialog::backdrop{background:rgba(10,12,18,.45)}
   <section class="panel" id="pTrans" aria-label="Transcripción">
     <div class="recbar">
       <button class="mic" id="micBtn" type="button"><span class="dot" aria-hidden="true"></span><span id="micLabel">Grabar</span></button>
-      <a class="mic hidden" id="grabLink" href="https://alvarorubio8.github.io/apuntes-grabadora/"><span class="dot" aria-hidden="true"></span><span>Grabar en Safari</span></a>
+      <a class="mic hidden" id="grabLink" href="https://alvarorubio8.github.io/apuntes-de-clase/grabadora/"><span class="dot" aria-hidden="true"></span><span>Grabar en Safari</span></a>
       <div class="recrow">
       <div class="recinfo">
         <span class="recstate" id="recState">Listo para transcribir</span>
@@ -464,6 +464,7 @@ function emptyHTML(){
     '<li>Cuando oigas algo importante, pulsa <b>★ Clave</b> (o la tecla K) para marcar la última frase.</li>' +
     '<li>Pulsa <b>Generar apuntes</b> al final o a mitad de clase.</li></ol>' +
     '<p class="note">Deja esta pestaña visible: si cambias de pestaña, la transcripción se pausa. El audio no se guarda, solo el texto.</p>' +
+    '<p class="note">¿Quieres guardar también el audio? Graba con la <a href="https://alvarorubio8.github.io/apuntes-de-clase/grabadora/">Grabadora</a> y al acabar pega aquí la transcripción con «Pegar transcripción».</p>' +
     (noDict ? '<p class="note"><b>En este dispositivo no hay dictado en directo.</b> Usa el micro del teclado en la caja de arriba: el texto se añade como frase tras unos segundos de pausa. Para transcribir una clase entera sin tocar nada, usa el portátil con Chrome o Edge. Tus clases y apuntes se sincronizan entre todos tus dispositivos.</p>' : "") +
     '</div>';
 }

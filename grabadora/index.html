@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grabadora · Apuntes de clase</title>
+<style>
+:root{
+  --bg:#f4f5f8; --surface:#ffffff; --ink:#151821; --muted:#5b6271; --line:#dfe3ea;
+  --accent:#2747c9; --accent-soft:#e8ecfb; --rec:#d1352c; --key:#a86a0c; --key-soft:#fbf1df;
+  --font:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --mono:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0f1218; --surface:#171b24; --ink:#e7eaf0; --muted:#9aa2b2; --line:#2a303c;
+    --accent:#8ea4ff; --accent-soft:#1f2740; --rec:#ff5d52; --key:#f0b445; --key-soft:#33280f;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 var(--font)}
+main{max-width:860px;margin:0 auto;padding:20px 16px 40px;display:flex;flex-direction:column;gap:14px}
+h1{margin:0;font-size:24px}
+.sub{margin:2px 0 0;color:var(--muted);font-size:14px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px}
+input[type=text]{width:100%;font:inherit;color:inherit;background:transparent;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.ctrl{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+button,.btn{font:inherit;font-size:15px;border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:10px;padding:10px 14px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:8px}
+button:disabled{opacity:.45;cursor:default}
+.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+@media (prefers-color-scheme: dark){ .primary{color:#0f1218} }
+.rec{font-size:17px;font-weight:600;padding:12px 20px;border-radius:999px}
+.rec .dot{width:14px;height:14px;border-radius:50%;background:var(--rec)}
+.rec.on{background:var(--rec);border-color:var(--rec);color:#fff}
+.rec.on .dot{background:#fff;animation:pulse 1.2s infinite}
+@keyframes pulse{50%{opacity:.3}}
+.keybtn{color:var(--key);border-color:var(--key)}
+.timer{font:600 18px var(--mono)}
+.state{color:var(--muted);font-size:14px;flex-basis:100%}
+.opt{display:flex;align-items:center;gap:6px;font-size:14px;color:var(--muted)}
+.banner{background:var(--key-soft);border:1px solid var(--key);border-radius:12px;padding:10px 12px;display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.trans{min-height:220px;max-height:55vh;overflow:auto}
+.seg{display:grid;grid-template-columns:auto auto 1fr;gap:8px;align-items:baseline;padding:4px 0;border-bottom:1px dashed var(--line)}
+.seg time{font:12px var(--mono);color:var(--muted)}
+.seg .st{border:none;background:none;padding:0 2px;color:var(--line);font-size:16px}
+.seg.k .st{color:var(--key)}
+.seg.k p{background:var(--key-soft);border-radius:6px}
+.seg p{margin:0}
+.interim{color:var(--muted);font-style:italic;padding:6px 0}
+.empty{color:var(--muted);font-size:15px}
+.empty ol{padding-left:20px;margin:6px 0}
+.out{display:flex;flex-wrap:wrap;gap:10px}
+.note{color:var(--muted);font-size:13px;margin:0}
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:10px;font-size:14px;max-width:90vw;z-index:9}
+.hidden{display:none !important}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Grabadora</h1>
+    <p class="sub">Graba el audio y transcribe la clase a la vez. Después pasa la transcripción a tus Apuntes.</p>
+  </header>
+
+  <div class="card">
+    <input type="text" id="fName" placeholder="Nombre de la clase (opcional)" autocomplete="off">
+  </div>
+
+  <div class="card ctrl">
+    <button class="rec" id="recBtn" type="button" aria-pressed="false"><span class="dot" aria-hidden="true"></span><span id="recLabel">Grabar</span></button>
+    <button class="keybtn" id="keyBtn" type="button" title="Atajo: tecla K">★ Clave</button>
+    <span class="timer" id="timer">00:00:00</span>
+    <label class="opt"><input type="checkbox" id="optAudio" checked> Guardar audio</label>
+    <div class="state" id="state">Listo para grabar</div>
+  </div>
+
+  <div class="banner hidden" id="banner" role="status"><span id="bannerText"></span><button id="resumeBtn" type="button">Reanudar</button></div>
+
+  <div class="card trans" id="trans" aria-live="polite"></div>
+
+  <div class="out">
+    <button class="primary" id="copyOpenBtn" type="button">Copiar y abrir Apuntes</button>
+    <button id="copyBtn" type="button">Copiar transcripción</button>
+    <a class="btn hidden" id="audioLink" href="#">Descargar audio</a>
+    <button id="clearBtn" type="button">Nueva grabación</button>
+  </div>
+
+  <p class="note">Usa Chrome o Edge en el ordenador para la mejor transcripción. Deja esta pestaña visible: si cambias de pestaña o bloqueas la pantalla, la transcripción se pausa. La transcripción se guarda sola en este navegador; el audio no, así que descárgalo antes de cerrar la página.</p>
+</main>
+<div class="toast hidden" id="toast"></div>
+
+<script>
+(() => {
+"use strict";
+const APP_URL = "https://claude.ai/artifact/6yk9EuSWzGexJXGJcuGJKd";
+const LS_KEY = "grabadora.v1";
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const $ = s => document.querySelector(s);
+
+// ---------- estado ----------
+let segs = [], name = "", accMs = 0;
+let want = false, startAt = 0;
+let rec = null, srBlocked = false, interimText = "", fastEnds = [];
+let stream = null, mediaRec = null, chunks = [], mimeType = "", audioUrl = null, audioSaved = true;
+let wakeLock = null, clearArmed = 0, toastT = null;
+
+// ---------- utilidades ----------
+const pad = n => String(n).padStart(2, "0");
+const clock = ts => { const d = new Date(ts); return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()); };
+const hms = ms => { const s = Math.floor(ms / 1000); return pad(Math.floor(s / 3600)) + ":" + pad(Math.floor(s / 60) % 60) + ":" + pad(s % 60); };
+function toast(msg){ const t = $("#toast"); t.textContent = msg; t.classList.remove("hidden"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.add("hidden"), 4000); }
+function setState(msg){ $("#state").textContent = msg; }
+function showBanner(msg){ $("#bannerText").textContent = msg; $("#banner").classList.remove("hidden"); }
+function hideBanner(){ $("#banner").classList.add("hidden"); }
+function elapsed(){ return accMs + (want ? Date.now() - startAt : 0); }
+
+function save(){ try{ localStorage.setItem(LS_KEY, JSON.stringify({ segs, name, accMs: elapsed() })); }catch(e){} }
+function load(){
+  try{
+    const d = JSON.parse(localStorage.getItem(LS_KEY) || "null");
+    if(d){ segs = Array.isArray(d.segs) ? d.segs : []; name = d.name || ""; accMs = d.accMs || 0; }
+  }catch(e){}
+}
+
+// Formato que entiende «Pegar transcripción» de la app: [hh:mm:ss] ★ texto
+function transcriptText(){ return segs.map(s => "[" + clock(s.t) + "] " + (s.k ? "★ " : "") + s.x).join("\n"); }
+
+// ---------- pintado ----------
+function segEl(s, i){
+  const d = document.createElement("div"); d.className = "seg" + (s.k ? " k" : ""); d.dataset.i = i;
+  const b = document.createElement("button"); b.type = "button"; b.className = "st"; b.textContent = "★";
+  b.setAttribute("aria-label", s.k ? "Quitar marca de clave" : "Marcar como clave");
+  const t = document.createElement("time"); t.textContent = clock(s.t);
+  const p = document.createElement("p"); p.textContent = s.x;
+  d.append(b, t, p); return d;
+}
+function renderTrans(){
+  const box = $("#trans"); box.innerHTML = "";
+  if(!segs.length && !want){
+    box.innerHTML = '<div class="empty"><b>Cómo usarla</b><ol>' +
+      '<li>Pulsa <b>Grabar</b> y acepta el permiso del micrófono.</li>' +
+      '<li>Cada frase aparece con su hora. Pulsa <b>★ Clave</b> (o la tecla K) para marcar la última frase como importante.</li>' +
+      '<li>Al acabar, pulsa <b>Descargar audio</b> para guardar la grabación.</li>' +
+      '<li>Pulsa <b>Copiar y abrir Apuntes</b>. En tus Apuntes, pulsa «Pegar transcripción», pega e importa, y genera los apuntes.</li></ol></div>';
+  } else if(!segs.length){
+    box.innerHTML = '<div class="empty">Escuchando… el texto aparecerá aquí mientras se habla.</div>';
+  } else {
+    const f = document.createDocumentFragment(); segs.forEach((s, i) => f.appendChild(segEl(s, i))); box.appendChild(f);
+  }
+  const it = document.createElement("div"); it.className = "interim"; it.id = "interim"; it.textContent = interimText; box.appendChild(it);
+  box.scrollTop = box.scrollHeight;
+}
+function renderCtrl(){
+  $("#recBtn").classList.toggle("on", want);
+  $("#recBtn").setAttribute("aria-pressed", want ? "true" : "false");
+  $("#recLabel").textContent = want ? "Pausar" : (segs.length || accMs ? "Seguir grabando" : "Grabar");
+  $("#optAudio").disabled = want || chunks.length > 0;
+  $("#timer").textContent = hms(elapsed());
+  const has = segs.length > 0;
+  $("#copyBtn").disabled = !has; $("#copyOpenBtn").disabled = !has;
+}
+
+// ---------- transcripción ----------
+function addSeg(text){
+  const x = (text || "").replace(/\s+/g, " ").trim(); if(!x) return;
+  const s = { t: Date.now(), x: x.charAt(0).toUpperCase() + x.slice(1), k: 0 };
+  segs.push(s);
+  if(segs.length === 1) renderTrans();
+  else { const box = $("#trans"); const near = box.scrollHeight - box.scrollTop - box.clientHeight < 80; box.insertBefore(segEl(s, segs.length - 1), $("#interim")); if(near) box.scrollTop = box.scrollHeight; }
+  renderCtrl(); save();
+}
+function setInterim(t){ interimText = t; const it = $("#interim"); if(it) it.textContent = t; }
+
+function startSR(){
+  if(!SR || srBlocked) return;
+  try{ if(rec){ rec.onend = null; rec.abort(); } }catch(e){}
+  rec = new SR();
+  rec.lang = "es-ES"; rec.continuous = true; rec.interimResults = true; rec.maxAlternatives = 1;
+  const r = rec, began = Date.now();
+  r.onresult = e => {
+    let interim = "";
+    for(let i = e.resultIndex; i < e.results.length; i++){
+      const res = e.results[i];
+      if(res.isFinal) addSeg(res[0].transcript); else interim += res[0].transcript;
+    }
+    setInterim(interim.trim());
+  };
+  r.onerror = e => {
+    if(e.error === "not-allowed" || e.error === "service-not-allowed"){
+      srBlocked = true;
+      showBanner(chunks.length || mediaRec ? "Este navegador no permite transcribir mientras graba: se sigue grabando solo el audio." : "Sin permiso para transcribir. Revisa el permiso del micrófono y pulsa Reanudar.");
+    } else if(e.error === "network"){ setState("Sin conexión con el servicio de transcripción. Reintentando…"); }
+    else if(e.error === "audio-capture"){ setState("No se detecta el micrófono para transcribir."); }
+  };
+  r.onend = () => {
+    if(r !== rec) return;
+    if(interimText){ addSeg(interimText); setInterim(""); }   // Safari a veces no marca la frase como final
+    if(!want || srBlocked || document.hidden) return;
+    const now = Date.now();
+    fastEnds = fastEnds.filter(t => now - t < 15000);
+    if(now - began < 1500) fastEnds.push(now);
+    if(fastEnds.length >= 5){ showBanner("La transcripción se ha detenido varias veces seguidas. Pulsa Reanudar."); return; }
+    setTimeout(() => { if(want && r === rec) startSR(); }, 250);
+  };
+  try{ r.start(); }catch(e){}
+}
+function stopSR(){
+  if(!rec) return;
+  const r = rec; rec = null;
+  try{ r.stop(); }catch(e){}
+  if(interimText){ addSeg(interimText); setInterim(""); }
+}
+
+// ---------- audio ----------
+function pickMime(){
+  if(!window.MediaRecorder) return null;
+  const opts = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm", "audio/ogg;codecs=opus"];
+  for(const t of opts){ try{ if(MediaRecorder.isTypeSupported(t)) return t; }catch(e){} }
+  return "";
+}
+async function startAudio(){
+  if(!$("#optAudio").checked) return;
+  if(mediaRec && mediaRec.state === "paused"){ mediaRec.resume(); return; }
+  if(mediaRec) return;
+  const mt = pickMime();
+  if(mt === null || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){ toast("Este navegador no puede grabar audio: solo se transcribe."); return; }
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: true, autoGainControl: true } });
+  }catch(e){ toast("Sin permiso para grabar audio: solo se transcribe."); return; }
+  if(!want){ stream.getTracks().forEach(t => t.stop()); stream = null; return; }
+  try{ mediaRec = mt ? new MediaRecorder(stream, { mimeType: mt, audioBitsPerSecond: 48000 }) : new MediaRecorder(stream); }
+  catch(e){ toast("No se pudo iniciar la grabación de audio: solo se transcribe."); return; }
+  mimeType = mediaRec.mimeType || mt || "audio/webm";
+  mediaRec.ondataavailable = e => { if(e.data && e.data.size){ chunks.push(e.data); audioSaved = false; updateAudioLink(); } };
+  mediaRec.start(5000);
+}
+function pauseAudio(){ if(mediaRec && mediaRec.state === "recording"){ try{ mediaRec.requestData(); mediaRec.pause(); }catch(e){} } }
+function audioExt(){ return /mp4/.test(mimeType) ? "m4a" : /ogg/.test(mimeType) ? "ogg" : "webm"; }
+function fileBase(){
+  const d = new Date(segs.length ? segs[0].t : Date.now());
+  const date = d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+  return (date + (name ? " - " + name : " - clase")).replace(/[\\/:*?"<>|]+/g, "").slice(0, 100);
+}
+function updateAudioLink(){
+  const a = $("#audioLink");
+  if(!chunks.length){ a.classList.add("hidden"); return; }
+  if(audioUrl) URL.revokeObjectURL(audioUrl);
+  audioUrl = URL.createObjectURL(new Blob(chunks, { type: mimeType.split(";")[0] || "audio/webm" }));
+  a.href = audioUrl; a.download = fileBase() + "." + audioExt();
+  a.classList.remove("hidden");
+}
+function releaseAudio(){
+  try{ if(mediaRec && mediaRec.state !== "inactive") mediaRec.stop(); }catch(e){}
+  if(stream) stream.getTracks().forEach(t => t.stop());
+  stream = null; mediaRec = null;
+}
+
+// ---------- grabar / pausar ----------
+async function start(){
+  want = true; startAt = Date.now(); srBlocked = false; fastEnds = [];
+  hideBanner();
+  if(SR) startSR(); else showBanner("Este navegador no transcribe en directo: se graba solo el audio. Usa Chrome o Edge para transcribir.");
+  setState(SR ? "Grabando y transcribiendo…" : "Grabando audio…");
+  renderTrans(); renderCtrl();
+  requestWake();
+  await startAudio();
+  if(want) setState((SR && !srBlocked ? "Transcribiendo" : "Sin transcripción") + (mediaRec ? " · grabando audio" : " · sin audio"));
+}
+function pause(){
+  accMs += Date.now() - startAt; want = false;
+  stopSR(); pauseAudio(); hideBanner();
+  releaseWake();
+  setState("En pausa" + (chunks.length ? " · puedes descargar el audio" : ""));
+  renderTrans(); renderCtrl(); save();
+}
+async function requestWake(){ try{ if(navigator.wakeLock) wakeLock = await navigator.wakeLock.request("screen"); }catch(e){} }
+function releaseWake(){ try{ if(wakeLock) wakeLock.release(); }catch(e){} wakeLock = null; }
+
+// ---------- copiar ----------
+async function copyText(text){
+  try{ await navigator.clipboard.writeText(text); return true; }catch(e){}
+  try{
+    const ta = document.createElement("textarea"); ta.value = text; ta.setAttribute("readonly", "");
+    ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta);
+    ta.select(); ta.setSelectionRange(0, text.length);
+    const ok = document.execCommand("copy"); ta.remove(); return ok;
+  }catch(e){ return false; }
+}
+
+// ---------- eventos ----------
+$("#recBtn").addEventListener("click", () => { if(want) pause(); else start(); });
+$("#resumeBtn").addEventListener("click", () => { hideBanner(); srBlocked = false; fastEnds = []; if(want){ startSR(); requestWake(); } else start(); });
+function keyLast(){
+  if(!segs.length){ toast("Todavía no hay frases que marcar"); return; }
+  toggleKey(segs.length - 1, true);
+}
+function toggleKey(i, onlyOn){
+  const s = segs[i]; if(!s) return;
+  if(onlyOn && s.k){ toast("La última frase ya está marcada"); return; }
+  s.k = s.k ? 0 : 1;
+  const el = document.querySelector('#trans .seg[data-i="' + i + '"]');
+  if(el) el.classList.toggle("k", !!s.k);
+  save();
+}
+$("#keyBtn").addEventListener("click", keyLast);
+$("#trans").addEventListener("click", e => { const b = e.target.closest(".st"); if(b) toggleKey(+b.parentElement.dataset.i); });
+document.addEventListener("keydown", e => {
+  if((e.key === "k" || e.key === "K") && !e.metaKey && !e.ctrlKey && !e.altKey && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)){ e.preventDefault(); keyLast(); }
+});
+$("#fName").addEventListener("input", e => { name = e.target.value.trim(); save(); if(chunks.length) updateAudioLink(); });
+
+$("#copyBtn").addEventListener("click", async () => {
+  toast(await copyText(transcriptText()) ? "Transcripción copiada (" + segs.length + " frases)" : "No se pudo copiar. Selecciona el texto y cópialo a mano.");
+});
+$("#copyOpenBtn").addEventListener("click", async () => {
+  if(want) pause();
+  const ok = await copyText(transcriptText());
+  let w = null;
+  try{ w = window.open(APP_URL, "_blank"); if(w) w.opener = null; }catch(e){}
+  if(!w){
+    // Ventana bloqueada: solo salimos de la página si no hay audio sin descargar
+    if(chunks.length && !audioSaved){ toast("Descarga primero el audio y vuelve a pulsar «Copiar y abrir Apuntes»."); return; }
+    location.href = APP_URL; return;
+  }
+  toast(ok ? "Copiada. En Apuntes pulsa «Pegar transcripción», pega e importa." : "No se pudo copiar automáticamente: usa «Copiar transcripción».");
+  if(chunks.length && !audioSaved) setTimeout(() => toast("Recuerda descargar el audio antes de cerrar esta página."), 4200);
+});
+$("#audioLink").addEventListener("click", () => {
+  if(mediaRec && mediaRec.state === "recording"){ try{ mediaRec.requestData(); }catch(e){} }
+  audioSaved = true;
+});
+$("#clearBtn").addEventListener("click", () => {
+  if(!segs.length && !chunks.length){ toast("No hay nada que borrar"); return; }
+  if(Date.now() - clearArmed > 4000){
+    clearArmed = Date.now();
+    toast(chunks.length && !audioSaved ? "El audio no está descargado. Pulsa otra vez para borrarlo todo." : "Pulsa otra vez para borrar la transcripción y empezar de cero.");
+    return;
+  }
+  clearArmed = 0;
+  if(want) pause();
+  releaseAudio(); chunks = []; audioSaved = true; updateAudioLink();
+  segs = []; accMs = 0; interimText = ""; name = ""; $("#fName").value = "";
+  save(); renderTrans(); renderCtrl(); setState("Listo para grabar"); toast("Nueva grabación lista");
+});
+
+document.addEventListener("visibilitychange", () => {
+  if(document.hidden){ save(); return; }
+  if(want){
+    requestWake();
+    if(SR && !srBlocked){ startSR(); showBanner("La transcripción se pausó al salir de la página. Si no ves texto nuevo, pulsa Reanudar."); }
+  }
+});
+window.addEventListener("beforeunload", e => {
+  save();
+  if(chunks.length && !audioSaved){ e.preventDefault(); e.returnValue = ""; }
+});
+setInterval(() => { if(want) $("#timer").textContent = hms(elapsed()); }, 1000);
+setInterval(() => { if(want) save(); }, 10000);
+
+// ---------- arranque ----------
+load();
+$("#fName").value = name;
+if(!SR) setState("Este navegador no transcribe en directo. Usa Chrome o Edge (o Safari actualizado).");
+renderTrans(); renderCtrl();
+})();
+</script>
+</body>
+</html>
