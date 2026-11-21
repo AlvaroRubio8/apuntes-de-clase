@@ -56,7 +56,11 @@ header.bar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;padding:
 .btn:disabled{opacity:.45;cursor:not-allowed}
 .btn.danger{color:var(--rec)}
 
-.meta{display:grid;grid-template-columns:1.2fr 1.6fr 1.2fr .9fr;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--surface)}
+.meta{display:grid;grid-template-columns:1.2fr 1.6fr 1.2fr .9fr auto;gap:10px;align-items:end;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--surface)}
+.meta label,.meta input{min-width:0}
+.meta input{width:100%}
+.glossbtn{height:38px}
+.glossbtn .n{font:500 12px var(--font-mono);color:var(--muted)}
 .meta label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted);font-weight:500;text-transform:uppercase;letter-spacing:.04em}
 .meta input{padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);font-size:15px;text-transform:none;letter-spacing:0;color:var(--ink)}
 
@@ -85,6 +89,16 @@ a.mic{text-decoration:none}
 @keyframes blink{50%{opacity:.35}}
 @media (prefers-reduced-motion: reduce){.mic.on .dot{animation:none}}
 .recrow{display:flex;align-items:center;gap:12px}
+/* Flujo de la clase: Grabar → Pegar → Generar. El paso en curso se resalta. */
+.flow{display:flex;gap:6px;list-style:none;margin:0;padding:0;font-size:13px}
+.flow li{flex:1;min-width:0;display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:8px;border:1px solid var(--line);color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.flow li b{flex:none;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font:600 11px var(--font-ui);background:var(--line);color:var(--ink)}
+.flow li.done{color:var(--ink)}
+.flow li.done b{background:var(--accent-soft);color:var(--accent)}
+.flow li.cur{border-color:var(--accent);color:var(--ink);font-weight:600;background:var(--accent-soft)}
+.flow li.cur b{background:var(--accent);color:var(--surface)}
+.gloss-area{min-height:34vh!important}
+.dbody .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px}
 .diag{font:12px var(--font-mono);color:var(--muted)}
 .recinfo{display:flex;flex-direction:column;min-width:0;flex:1}
 .recstate{font-weight:600}
@@ -150,6 +164,7 @@ dialog::backdrop{background:rgba(10,12,18,.45)}
 
 @media (max-width:860px){
   .meta{grid-template-columns:1fr 1fr}
+  .glossbtn{grid-column:1 / -1}
   .tabs{display:flex}
   main{grid-template-columns:1fr;padding:0 16px 16px;gap:0}
   .panel{border-top-left-radius:0;border-top-right-radius:0}
@@ -157,7 +172,11 @@ dialog::backdrop{background:rgba(10,12,18,.45)}
   main[data-tab="n"] #pTrans{display:none}
 }
 @media (max-width:420px){
-  .meta{grid-template-columns:1fr}
+  .meta{gap:8px;padding-block:10px}
+  .meta label{font-size:11px}
+  .meta input{padding:6px 8px;font-size:15px}
+  .flow li{padding:6px;font-size:12px}
+  .flow .lg{display:none}
   .seg{grid-template-columns:20px 1fr}
   .seg time{display:none}
   .interim{padding-left:32px}
@@ -181,6 +200,7 @@ dialog::backdrop{background:rgba(10,12,18,.45)}
   <label for="fTopic">Tema<input id="fTopic" placeholder="p. ej. Modelos de negocio de plataforma" autocomplete="off"></label>
   <label for="fTeacher">Profesor<input id="fTeacher" list="teachers" placeholder="Nombre" autocomplete="off"></label>
   <label for="fDate">Fecha<input id="fDate" type="date"></label>
+  <button class="btn glossbtn" id="glossBtn" type="button" title="Términos, autores y empresas de la asignatura que Claude usa para corregir la transcripción">Glosario <span class="n" id="glossN"></span></button>
   <datalist id="subjects"></datalist>
   <datalist id="teachers"></datalist>
 </section>
@@ -188,6 +208,10 @@ dialog::backdrop{background:rgba(10,12,18,.45)}
 <div class="banner hidden" id="banner" role="status">
   <span id="bannerText">La transcripción se ha pausado.</span>
   <button class="btn primary" id="resumeBtn" type="button">Reanudar</button>
+</div>
+<div class="banner hidden" id="backBanner" role="status">
+  <span>¿Has terminado en la Grabadora? Pega aquí la transcripción que copiaste.</span>
+  <span><button class="btn primary" id="backPaste" type="button">Pegar transcripción</button> <button class="btn ghost" id="backLater" type="button">Todavía no</button></span>
 </div>
 
 <nav class="tabs" role="tablist" aria-label="Vista">
@@ -200,11 +224,15 @@ dialog::backdrop{background:rgba(10,12,18,.45)}
     <div class="recbar">
       <a class="mic" id="grabLink" href="https://alvarorubio8.github.io/apuntes-de-clase/grabadora/?auto=1" target="_blank" rel="noopener"><span class="dot" aria-hidden="true"></span><span>GRABAR</span></a>
       <button class="mic alt" id="micBtn" type="button"><span class="dot" aria-hidden="true"></span><span id="micLabel">Transcribir aquí (sin audio)</span></button>
+      <ol class="flow" id="flow" aria-label="Pasos">
+        <li id="st1"><b>1</b>Grabar</li>
+        <li id="st2"><b>2</b>Pegar<span class="lg">&nbsp;transcripción</span></li>
+        <li id="st3"><b>3</b>Generar<span class="lg">&nbsp;apuntes</span></li>
+      </ol>
       <div class="recrow">
       <div class="recinfo">
         <span class="recstate" id="recState">Listo para transcribir</span>
         <span class="recsub" id="recSub">0 palabras · 00:00:00</span>
-        <span class="recsub diag" id="diag"></span>
       </div>
       <button class="btn keybtn" id="keyBtn" type="button" title="Atajo: tecla K">★ Clave</button>
       </div>
@@ -270,6 +298,21 @@ dialog::backdrop{background:rgba(10,12,18,.45)}
   </div>
 </dialog>
 
+<dialog id="glossDlg" aria-labelledby="glossTitle">
+  <div class="dhead">
+    <h3 id="glossTitle">Glosario de <span id="glossSubj">la asignatura</span></h3>
+    <div class="note">Un término por línea: conceptos, frameworks, autores, empresas, siglas. Claude los usa para corregir lo que el reconocimiento de voz haya escrito mal (por ejemplo «capex» → CAPEX, «Oster Walder» → Osterwalder). Se guarda por asignatura y sirve para todas sus clases.</div>
+  </div>
+  <div class="dbody">
+    <textarea id="glossArea" class="gloss-area" spellcheck="false" aria-label="Términos del glosario" placeholder="Business Model Canvas&#10;Osterwalder&#10;CAPEX&#10;Efecto red"></textarea>
+    <div class="row"><button class="btn" id="glossFromNotes" type="button">Añadir los términos de estos apuntes</button><span class="note" id="glossHint"></span></div>
+  </div>
+  <div class="dfoot">
+    <button class="btn" id="glossCancel" type="button">Cancelar</button>
+    <button class="btn primary" id="glossSave" type="button">Guardar glosario</button>
+  </div>
+</dialog>
+
 <dialog id="delDlg" aria-labelledby="delTitle">
   <div class="dhead"><h3 id="delTitle">¿Eliminar esta clase?</h3><div class="note" id="delText">Se borrarán la transcripción y los apuntes. No se puede deshacer.</div></div>
   <div class="dfoot">
@@ -302,8 +345,11 @@ let kbdTimer = null, kbdDone = 0;
 let genCtl = null, wakeLock = null;
 let restarts = [];
 const dg = { st:'—', why:'', p:0, f:0, err:'', v:'v8' };
-function diag(){ const e = $("#diag"); if(e) e.textContent = 'Micro ' + dg.v + ': ' + (dict ? 'disponible' : 'no disponible') + ' · estado ' + dg.st + (dg.why ? ' (' + dg.why + ')' : '') + ' · parciales ' + dg.p + ' · frases ' + dg.f + (dg.err ? ' · error ' + dg.err : ''); }
+// Diagnóstico del dictado: no se muestra, queda en la ayuda emergente del estado
+function diag(){ const e = $("#recState"); if(e) e.title = 'Micro ' + dg.v + ': ' + (dict ? 'disponible' : 'no disponible') + ' · estado ' + dg.st + (dg.why ? ' (' + dg.why + ')' : '') + ' · parciales ' + dg.p + ' · frases ' + dg.f + (dg.err ? ' · error ' + dg.err : ''); }
 let clockOn = false, clockStart = 0;   // iPad: cronómetro de clase (graba Notas de voz)
+let grabOut = false;                   // se ha abierto la Grabadora desde aquí y aún no se ha pegado
+let gloss = {};                        // asignatura (en minúsculas) -> texto del glosario
 
 // ---------- utilidades ----------
 function lsGet(k){ try{ const v = localStorage.getItem(LS + k); return v ? JSON.parse(v) : null; }catch(e){ return null; } }
@@ -403,6 +449,38 @@ async function flush(){
   await persist();
 }
 
+// ---------- glosario por asignatura ----------
+const glossRef = () => db.doc("data/users/" + uid + "/glossary");
+const subjKey = v => (v || "").trim().toLowerCase();
+function glossTerms(subject){
+  const seen = new Set(), out = [];
+  (gloss[subjKey(subject)] || "").split(/[\n;]+/).forEach(t => { t = t.trim(); const k = t.toLowerCase(); if(t && !seen.has(k)){ seen.add(k); out.push(t); } });
+  return out.slice(0, 200);
+}
+async function loadGloss(){
+  gloss = lsGet("gloss") || {};
+  if(mode !== "cloud") return;
+  try{
+    const snap = await withTimeout(glossRef().get(), 10000);
+    if(snap.exists){ gloss = Object.assign({}, gloss, clone(snap.data().bySubject || {})); lsSet("gloss", gloss); }
+  }catch(e){}
+}
+async function saveGloss(){
+  lsSet("gloss", gloss);
+  if(mode !== "cloud") return true;
+  try{ await glossRef().set({ bySubject:gloss }); return true; }catch(e){ return false; }
+}
+function renderGlossBtn(){
+  const n = glossTerms(cur.subject).length;
+  $("#glossN").textContent = n ? "(" + n + ")" : "";
+}
+// Términos en **negrita** de los apuntes (sobre todo Conceptos y Frameworks)
+function termsFromNotes(md){
+  const out = [];
+  (md || "").replace(/\*\*([^*\n]{2,60})\*\*/g, (_, t) => { t = t.replace(/[:.,;]+$/, "").replace(/^★\s*/, "").trim(); if(t && t.split(/\s+/).length <= 6) out.push(t); });
+  return out;
+}
+
 async function removeSession(id){
   delete index[id];
   lsDel("s." + id); lsSet("index", index);
@@ -489,17 +567,16 @@ function renderRecInfo(){
   $("#recSub").textContent = words() + " palabras · " + hms(ms) + (keys ? " · " + keys + " ★" : "");
   const mic = $("#micBtn");
   mic.classList.toggle("on", live);
-  $("#importBtn").classList.toggle("primary", !dict);
   $("#kbdRow").classList.toggle("compact", !!dict);
   $("#kbdLab").textContent = dict ? "" : "Tus notas (opcional): escribe aquí lo que quieras destacar.";
   $("#kbdIn").placeholder = dict ? "Escribe una nota o frase y pulsa Intro…" : "Toca aquí y pulsa el micro del teclado…";
   let label, state;
   if(dict){
     label = listening ? "Pausar transcripción" : wantRec ? "Conectando…" : (cur.segs.length ? "Seguir transcribiendo aquí (sin audio)" : "Transcribir aquí (sin audio)");
-    state = listening ? "Transcribiendo aquí…" : wantRec ? "Conectando…" : "Grabar abre la Grabadora: audio y texto a la vez";
+    state = listening ? "Transcribiendo aquí…" : wantRec ? "Conectando…" : grabOut ? "Grabadora abierta en otra pestaña" : "GRABAR abre la Grabadora: audio y texto a la vez";
   } else {
     label = "";
-    state = "Grabar abre la Grabadora: audio y texto a la vez";
+    state = grabOut ? "Grabadora abierta en otra pestaña" : "GRABAR abre la Grabadora: audio y texto a la vez";
   }
   $("#micLabel").textContent = label;
   mic.classList.toggle("hidden", !dict);
@@ -507,6 +584,15 @@ function renderRecInfo(){
   mic.setAttribute("aria-label", label);
   mic.setAttribute("aria-pressed", live ? "true" : "false");
   $("#recState").textContent = state;
+  // Pasos: 1 Grabar · 2 Pegar · 3 Generar
+  const hasT = cur.segs.some(s => !s.n), d1 = hasT || grabOut || live, d2 = hasT, d3 = !!cur.notes;
+  const curStep = !d1 ? 1 : !d2 ? 2 : !d3 ? 3 : 0;
+  [d1, d2, d3].forEach((d, i) => { const li = $("#st" + (i + 1)); li.classList.toggle("done", d && curStep !== i + 1); li.classList.toggle("cur", curStep === i + 1); });
+  $("#st1").querySelector("b").textContent = d1 && curStep !== 1 ? "✓" : "1";
+  $("#st2").querySelector("b").textContent = d2 ? "✓" : "2";
+  $("#st3").querySelector("b").textContent = d3 ? "✓" : "3";
+  $("#importBtn").classList.toggle("primary", curStep === 2 || (!dict && !hasT));
+  $("#genBtn").textContent = cur.notes ? "Volver a generar" : "Generar apuntes";
 }
 
 // Enlace a la Grabadora: empieza sola y usa el nombre de la clase para el archivo de audio
@@ -541,7 +627,7 @@ function renderNotes(){
   });
 }
 
-function renderAll(){ renderMeta(); renderTrans(); renderNotes(); renderSelect(); }
+function renderAll(){ renderMeta(); renderTrans(); renderNotes(); renderSelect(); renderGlossBtn(); }
 
 // ---------- sesiones ----------
 async function openSession(id){
@@ -753,7 +839,8 @@ function doImport(){
   } else cur.segs = cur.segs.concat(segs);
   $("#impDlg").close(); $("#impArea").value = "";
   renderTrans(); renderNotes(); saveSoon(300);
-  toast(segs.length + " frases importadas");
+  grabOut = false; $("#backBanner").classList.add("hidden"); renderRecInfo();
+  toast(segs.length + " frases importadas" + (sample ? ". Ahora pulsa «Generar apuntes»." : ""));
 }
 
 // ---------- apuntes con Claude ----------
@@ -761,12 +848,16 @@ function lineFor(s){ return (s.t ? "[" + clock(s.t).slice(0,5) + "] " : "") + (s
 function transcriptForPrompt(){ return cur.segs.filter(s => !s.n).map(lineFor).join("\n"); }
 function studentNotesForPrompt(){ return cur.segs.filter(s => s.n).map(lineFor).join("\n"); }
 
-function buildPrompt(partial){
+function glossBlock(){
+  const g = glossTerms(cur.subject);
+  return g.length ? "\nGLOSARIO DE LA ASIGNATURA (grafía correcta de términos, autores y empresas que suelen salir; úsalo para corregir lo mal reconocido, pero no añadas términos que no se mencionen)\n" + g.join(" · ") + "\n" : "";
+}
+function buildPrompt(partial, partNotes){
   const meta = "Asignatura: " + (cur.subject || "(sin indicar)") + "\nTema: " + (cur.topic || "(sin indicar)") +
     "\nProfesor: " + (cur.teacher || "(sin indicar)") + "\nFecha: " + (cur.date ? fmtDate(cur.date) : "(sin indicar)");
   return [
     "Convierte la transcripción automática de una clase de un programa ejecutivo de negocio digital (MIB de ISDI) en apuntes de estudio en español.",
-    "", meta, "",
+    "", meta, glossBlock(), "",
     "REGLAS",
     "- Usa solo lo que aparece en la transcripción. No inventes cifras, autores, empresas, frameworks ni ejemplos que no se mencionen.",
     "- La transcripción procede de reconocimiento de voz: corrige los errores evidentes (palabras mal reconocidas, nombres de marcos o empresas conocidos mal escritos). Si una corrección o un fragmento es dudoso, márcalo con (¿?).",
@@ -785,9 +876,46 @@ function buildPrompt(partial){
     "## Preguntas de repaso  (5-8 preguntas que podría hacer el profesor en un examen o en una defensa)",
     "## Tareas y entregas  (qué, para cuándo y formato, solo si se dijo)",
     partial ? "\nLa clase sigue en curso: termina con la línea «_Apuntes parciales hasta las " + clock(Date.now()).slice(0,5) + "._»" : "",
-    "", "TRANSCRIPCIÓN", "<<<", transcriptForPrompt() || "(sin transcripción; usa solo las notas del alumno)", ">>>",
+    "", partNotes ? "NOTAS POR TRAMOS (la clase era larga y se resumió por partes; las líneas con ★ son las marcadas por el alumno; fusiona todo sin repetir)" : "TRANSCRIPCIÓN",
+    "<<<", partNotes || transcriptForPrompt() || "(sin transcripción; usa solo las notas del alumno)", ">>>",
     studentNotesForPrompt() ? "\nNOTAS DEL ALUMNO\n<<<\n" + studentNotesForPrompt() + "\n>>>" : ""
   ].join("\n");
+}
+
+// Clases largas: por encima de este número de palabras, primero se resume cada tramo y luego se fusiona
+const LONG_WORDS = 9000, PART_WORDS = 6000;
+function transcriptParts(){
+  const parts = []; let curP = [], n = 0;
+  cur.segs.filter(s => !s.n).forEach(s => {
+    const w = s.x.split(/\s+/).length;
+    if(n + w > PART_WORDS && curP.length){ parts.push(curP); curP = []; n = 0; }
+    curP.push(s); n += w;
+  });
+  if(curP.length) parts.push(curP);
+  return parts;
+}
+function partPrompt(segs, i, n){
+  const from = segs[0].t ? clock(segs[0].t).slice(0,5) : "", to = segs[segs.length-1].t ? clock(segs[segs.length-1].t).slice(0,5) : "";
+  return [
+    "Este es el tramo " + (i + 1) + " de " + n + (from ? " (" + from + "-" + to + ")" : "") + " de la transcripción automática de una clase de un programa ejecutivo de negocio digital. Asignatura: " + (cur.subject || "(sin indicar)") + ". Tema: " + (cur.topic || "(sin indicar)") + ".",
+    glossBlock(),
+    "Extrae en español notas detalladas SOLO de este tramo, en viñetas, bajo estos encabezados: ### Ideas · ### Conceptos (**término**: definición) · ### Frameworks y modelos · ### Ejemplos y casos · ### Citas y datos (con su hora [hh:mm]) · ### Tareas y entregas. Omite los encabezados sin contenido.",
+    "Usa solo lo que dice el tramo; no inventes. Corrige errores evidentes del reconocimiento de voz y marca lo dudoso con (¿?). Conserva la ★ delante de lo que el alumno marcó. Sin introducción.",
+    "", "<<<", segs.map(lineFor).join("\n"), ">>>"
+  ].join("\n");
+}
+// Llama a Claude y, si la respuesta se corta por longitud, le pide que continúe (hasta 2 veces)
+async function ask(prompt, signal, onText){
+  let res = await sample(prompt, { modelTier:"default", cache:false, signal, onText: onText ? ({ text }) => { if(text !== "Thinking...") onText(text); } : undefined });
+  let text = res.text;
+  for(let i = 0; res.truncated && i < 2; i++){
+    const before = text;
+    res = await sample([{ role:"user", content:prompt }, { role:"assistant", content:before },
+      { role:"user", content:"Te has cortado por longitud. Continúa exactamente donde lo dejaste, sin repetir nada y sin introducción." }],
+      { modelTier:"default", cache:false, signal, onText: onText ? ({ text:t }) => { if(t !== "Thinking...") onText(before + t); } : undefined });
+    text = before + res.text;
+  }
+  return { text, truncated: res.truncated };
 }
 
 async function generate(){
@@ -802,15 +930,26 @@ async function generate(){
   if(innerWidth <= 860) setTab("n");
   s.notes = ""; s.notesAt = 0; renderNotes();
   $("#notes").innerHTML = '<p class="note">Generando apuntes…</p>';
+  let shown = "";
+  const show = t => { shown = t; s.notes = t; if(s === cur) renderNotes(); };
   try{
-    const res = await sample(buildPrompt(listening), {
-      modelTier:"default", cache:false, signal:ctl.signal,
-      onText: ({ text }) => { if(text && text !== "Thinking...") { s.notes = text; if(s === cur) renderNotes(); } }
-    });
+    let partNotes = "";
+    const words = cur.segs.filter(x => !x.n).reduce((n, x) => n + x.x.split(/\s+/).length, 0);
+    if(words > LONG_WORDS){
+      const parts = transcriptParts(), done = [];
+      for(let i = 0; i < parts.length; i++){
+        if(s === cur) $("#notes").innerHTML = '<p class="note">Clase larga: resumiendo el tramo ' + (i + 1) + ' de ' + parts.length + '…</p>';
+        const r = await ask(partPrompt(parts[i], i, parts.length), ctl.signal);
+        done.push("## Tramo " + (i + 1) + "\n" + r.text);
+      }
+      partNotes = done.join("\n\n");
+      if(s === cur) $("#notes").innerHTML = '<p class="note">Uniendo los ' + parts.length + ' tramos en los apuntes finales…</p>';
+    }
+    const res = await ask(buildPrompt(listening, partNotes), ctl.signal, show);
     s.notes = res.text; s.notesAt = Date.now();
-    if(res.truncated) toast("Los apuntes se han cortado por longitud. Prueba a generarlos por partes.");
+    if(res.truncated) toast("Los apuntes siguen cortados tras pedir que continúe. Prueba a generarlos de nuevo.");
   }catch(e){
-    if(e && e.text){ s.notes = e.text; s.notesAt = Date.now(); }
+    if(shown || (e && e.text)){ s.notes = shown || e.text; s.notesAt = Date.now(); }
     else s.notes = prevNotes;
     if(ctl.signal.aborted) toast("Generación detenida");
     else if(e && e.code === "not_granted"){ sample = null; toast("Sin permiso para usar Claude en esta página"); }
@@ -819,7 +958,7 @@ async function generate(){
   }finally{
     if(genCtl === ctl) genCtl = null;
     $("#genBtn").classList.remove("hidden"); $("#stopGenBtn").classList.add("hidden"); $("#genBtn").disabled = !sample;
-    if(s === cur){ renderNotes(); saveSoon(300); }
+    if(s === cur){ renderNotes(); renderRecInfo(); saveSoon(300); }
     else if(index[s.id]){            // cambiaste de clase mientras se generaba: guarda esa clase, no la abierta
       const c = clone(s); c.updatedAt = Date.now();
       lsSet("s." + c.id, c);
@@ -907,6 +1046,7 @@ $("#micBtn").addEventListener("click", () => { if(!dict){ toggleClock(); return;
 $("#resumeBtn").addEventListener("click", () => startRec());
 $("#grabLink").addEventListener("click", e => {
   e.currentTarget.href = grabUrl();
+  grabOut = true; renderRecInfo();
   saveSoon(300);
   setTimeout(() => toast("Al acabar, en la Grabadora pulsa «Copiar y abrir Apuntes» y aquí «Pegar transcripción»."), 400);
 });
@@ -924,7 +1064,7 @@ document.addEventListener("keydown", e => {
   const key = { fSubject:"subject", fTopic:"topic", fTeacher:"teacher", fDate:"date" }[id];
   cur[key] = e.target.value; saveSoon(2500);
 }));
-["fSubject","fTopic","fTeacher","fDate"].forEach(id => $("#" + id).addEventListener("change", () => { renderSelect(); saveSoon(500); }));
+["fSubject","fTopic","fTeacher","fDate"].forEach(id => $("#" + id).addEventListener("change", () => { renderSelect(); renderGlossBtn(); saveSoon(500); }));
 
 $("#newBtn").addEventListener("click", newSession);
 $("#sessionSel").addEventListener("change", e => {
@@ -949,12 +1089,51 @@ $("#delOk").addEventListener("click", async () => {
 });
 
 $("#editBtn").addEventListener("click", () => { if(listening) stopRec(); $("#editArea").value = toLines(); $("#editDlg").showModal(); });
-$("#importBtn").addEventListener("click", () => { if(listening) stopRec(); commitKbd(true); $("#impDlg").showModal(); $("#impArea").focus(); });
+$("#importBtn").addEventListener("click", () => openImport());
 $("#impCancel").addEventListener("click", () => $("#impDlg").close());
+function openImport(text){
+  if(listening) stopRec(); commitKbd(true);
+  $("#backBanner").classList.add("hidden");
+  if(text != null) $("#impArea").value = text;
+  $("#impDlg").showModal(); $("#impArea").focus();
+}
+$("#backPaste").addEventListener("click", () => openImport());
+$("#backLater").addEventListener("click", () => $("#backBanner").classList.add("hidden"));
+// Ctrl+V / Cmd+V en cualquier parte de la página (fuera de un campo) con una transcripción: abre «Pegar» ya relleno
+document.addEventListener("paste", e => {
+  if(/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) || document.querySelector("dialog[open]")) return;
+  const t = (e.clipboardData && e.clipboardData.getData("text")) || "";
+  if(t.trim().split(/\s+/).length < 8) return;
+  e.preventDefault(); openImport(t);
+  toast("Revisa y pulsa Importar");
+});
 $("#impOk").addEventListener("click", doImport);
 $("#editCancel").addEventListener("click", () => $("#editDlg").close());
 $("#editSave").addEventListener("click", () => { cur.segs = fromLines($("#editArea").value); $("#editDlg").close(); renderTrans(); renderNotes(); saveSoon(300); });
 
+$("#glossBtn").addEventListener("click", () => {
+  if(!cur.subject.trim()){ toast("Escribe primero la asignatura: el glosario se guarda por asignatura."); $("#fSubject").focus(); return; }
+  $("#glossSubj").textContent = cur.subject.trim();
+  $("#glossArea").value = glossTerms(cur.subject).join("\n");
+  $("#glossHint").textContent = cur.notes ? "" : "Disponible cuando haya apuntes generados.";
+  $("#glossFromNotes").disabled = !cur.notes;
+  $("#glossDlg").showModal();
+});
+$("#glossFromNotes").addEventListener("click", () => {
+  const have = new Set($("#glossArea").value.split(/\n/).map(t => t.trim().toLowerCase()).filter(Boolean));
+  const add = termsFromNotes(cur.notes).filter(t => { const k = t.toLowerCase(); if(have.has(k)) return false; have.add(k); return true; });
+  if(!add.length){ $("#glossHint").textContent = "No hay términos nuevos en estos apuntes."; return; }
+  const a = $("#glossArea"); a.value = (a.value.trim() ? a.value.trim() + "\n" : "") + add.join("\n");
+  $("#glossHint").textContent = add.length + " términos añadidos. Revisa la lista y borra los que sobren.";
+});
+$("#glossCancel").addEventListener("click", () => $("#glossDlg").close());
+$("#glossSave").addEventListener("click", async () => {
+  const k = subjKey(cur.subject); if(!k) return;
+  const txt = $("#glossArea").value.split(/\n/).map(t => t.trim()).filter(Boolean).join("\n");
+  if(txt) gloss[k] = txt; else delete gloss[k];
+  $("#glossDlg").close(); renderGlossBtn();
+  toast(await saveGloss() ? "Glosario guardado (" + glossTerms(cur.subject).length + " términos)" : "Glosario guardado solo en este navegador");
+});
 $("#genBtn").addEventListener("click", generate);
 $("#stopGenBtn").addEventListener("click", () => genCtl && genCtl.abort());
 $("#copyBtn").addEventListener("click", async () => {
@@ -969,8 +1148,9 @@ $("#tabT").addEventListener("click", () => setTab("t"));
 $("#tabN").addEventListener("click", () => setTab("n"));
 
 document.addEventListener("visibilitychange", () => {
-  if(document.hidden){ commitKbd(false); persist(); }
-  else if(wantRec && !listening){ showBanner("La transcripción se ha pausado al cambiar de pestaña."); }
+  if(document.hidden){ commitKbd(false); persist(); return; }
+  if(grabOut && !document.querySelector("dialog[open]")) $("#backBanner").classList.remove("hidden");
+  if(wantRec && !listening){ showBanner("La transcripción se ha pausado al cambiar de pestaña."); }
   else if(mode === "cloud" && cur && !dirty && !listening) reloadCurrent();
 });
 window.addEventListener("pagehide", () => { if(cur && hasContent(cur)){ lsSet("s." + cur.id, cur); } });
@@ -991,6 +1171,7 @@ async function init(){
   if(!downloads){ $("#mdBtn").classList.add("hidden"); $("#docxBtn").classList.add("hidden"); }
   $("#genBtn").disabled = !sample;
   await loadIndex();
+  await loadGloss(); renderGlossBtn();
   if(mode === "cloud"){ setStatus("Sincronizado con tu cuenta"); watchIndex(); }
   else if(!$("#status").classList.contains("warn")) setStatus("Se guarda solo en este navegador", "warn");
   const last = lsGet("last");
