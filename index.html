@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apuntes de clase</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap" rel="stylesheet">
+<style>
+/* Layout: barra de sesión arriba; dos paneles (transcripción | apuntes) que pasan a pestañas en móvil */
+:root{
+  --bg:#f4f5f8; --surface:#ffffff; --ink:#151821; --muted:#5b6271; --line:#dfe3ea;
+  --accent:#2747c9; --accent-soft:#e8ecfb; --rec:#d1352c; --key:#a86a0c; --key-soft:#fbf1df;
+  --font-ui:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --font-notes:"Source Serif 4",Georgia,"Times New Roman",serif;
+  --font-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1218; --surface:#171b24; --ink:#e7eaf0; --muted:#9aa2b2; --line:#2a303c;
+    --accent:#8ea4ff; --accent-soft:#1f2740; --rec:#ff5d52; --key:#f0b445; --key-soft:#33280f;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1218; --surface:#171b24; --ink:#e7eaf0; --muted:#9aa2b2; --line:#2a303c;
+  --accent:#8ea4ff; --accent-soft:#1f2740; --rec:#ff5d52; --key:#f0b445; --key-soft:#33280f;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--font-ui);display:flex;flex-direction:column}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.hidden{display:none!important}
+
+header.bar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--surface)}
+.brand{font:600 30px/1.1 var(--font-notes);letter-spacing:-.015em;margin:0 8px 0 0;flex:0 0 auto}
+@media (max-width:600px){.brand{font-size:26px;flex-basis:100%}}
+.sel{display:flex;gap:8px;align-items:center;flex:1 1 280px;min-width:0}
+.sel select{flex:1;min-width:0;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)}
+.status{font-size:13px;color:var(--muted);white-space:nowrap}
+.status.warn{color:var(--key)}
+.status.err{color:var(--rec)}
+
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:7px 12px;font-size:14px;font-weight:500;display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+:root[data-theme="dark"] .btn.primary{color:#0f1218}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .btn.primary{color:#0f1218}}
+.btn.ghost{border-color:transparent;background:transparent;color:var(--muted)}
+.btn.ghost:hover{color:var(--ink)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.danger{color:var(--rec)}
+
+.meta{display:grid;grid-template-columns:1.2fr 1.6fr 1.2fr .9fr;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--surface)}
+.meta label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted);font-weight:500;text-transform:uppercase;letter-spacing:.04em}
+.meta input{padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);font-size:15px;text-transform:none;letter-spacing:0;color:var(--ink)}
+
+.banner{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:10px 16px;background:var(--key-soft);color:var(--ink);border-bottom:1px solid var(--line);font-size:14px}
+
+.tabs{display:none;gap:4px;padding:8px 16px 0;background:var(--bg)}
+.tabs button{flex:1;padding:8px;border:1px solid var(--line);border-bottom:none;border-radius:8px 8px 0 0;background:transparent;color:var(--muted);font-weight:500}
+.tabs button[aria-selected="true"]{background:var(--surface);color:var(--ink)}
+
+main{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;padding:16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.phead{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line)}
+.phead h2{font-size:13px;margin:0 auto 0 0;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+.pbody{flex:1;overflow:auto;padding:14px 16px}
+
+.recbar{display:flex;flex-direction:column;gap:12px;padding:14px 12px;border-bottom:1px solid var(--line)}
+.mic{width:100%;min-height:76px;border:none;border-radius:16px;background:var(--rec);color:#fff;display:flex;align-items:center;justify-content:center;gap:14px;font:600 24px/1 var(--font-ui);letter-spacing:.01em;box-shadow:0 2px 0 color-mix(in srgb,var(--rec) 60%,#000)}
+.mic:active{transform:translateY(1px)}
+a.mic{text-decoration:none}
+.mic .dot{width:22px;height:22px;border-radius:50%;background:#fff;flex:none}
+.mic.on{background:var(--ink);color:var(--bg);box-shadow:none}
+.mic.on .dot{border-radius:4px;background:var(--rec);animation:blink 1.2s infinite}
+@keyframes blink{50%{opacity:.35}}
+@media (prefers-reduced-motion: reduce){.mic.on .dot{animation:none}}
+.recrow{display:flex;align-items:center;gap:12px}
+.diag{font:12px var(--font-mono);color:var(--muted)}
+.recinfo{display:flex;flex-direction:column;min-width:0;flex:1}
+.recstate{font-weight:600}
+.recsub{font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+.keybtn{border-color:var(--key);color:var(--key)}
+.kbd{padding:10px 12px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:6px}
+.kbdlab{font-size:12.5px;color:var(--muted)}
+.kbdrow{display:flex;gap:8px;align-items:stretch}
+.kbdrow textarea{flex:1;min-width:0;resize:none;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--bg);font-size:16px;line-height:1.4}
+.kbd.compact .kbdlab{display:none}
+.kbd.compact textarea{font-size:14px}
+.kbd:not(.compact) textarea{min-height:96px}
+
+.seg{display:grid;grid-template-columns:22px 58px 1fr;gap:6px;padding:5px 6px;border-radius:6px;align-items:baseline}
+.seg time{font:12px var(--font-mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.seg p{margin:0}
+.seg .st{border:none;background:none;padding:0;color:var(--line);font-size:15px;line-height:1}
+.seg .st:hover{color:var(--key)}
+.seg.k{background:var(--key-soft)}
+.seg.k .st{color:var(--key)}
+.seg.k p{font-weight:500}
+.seg.mine{border-left:3px solid var(--accent);background:var(--accent-soft)}
+.seg.mine.k{background:var(--key-soft);border-left-color:var(--key)}
+.seg .tag{display:inline-block;font:600 11px var(--font-ui);text-transform:uppercase;letter-spacing:.05em;color:var(--accent);margin-right:6px}
+.steps{counter-reset:s;list-style:none;padding:0}
+.steps li{counter-increment:s;padding-left:30px;position:relative;margin:8px 0}
+.steps li::before{content:counter(s);position:absolute;left:0;top:1px;width:20px;height:20px;border-radius:50%;background:var(--accent-soft);color:var(--accent);font:600 12px/20px var(--font-ui);text-align:center}
+.radios{display:flex;flex-direction:column;gap:6px;margin-top:10px;font-size:14px}
+.interim{color:var(--ink);opacity:.62;padding:5px 6px 5px 92px;min-height:1.5em}
+.interim:empty{display:none}
+.listen{display:flex;align-items:center;gap:10px;color:var(--muted);padding:8px 6px;font-size:15px}
+.listen i{width:10px;height:10px;border-radius:50%;background:var(--rec);animation:blink 1.2s infinite;flex:none}
+@media (prefers-reduced-motion: reduce){.listen i{animation:none}}
+
+.empty{color:var(--muted);max-width:52ch}
+.empty h3{color:var(--ink);font-size:16px;margin:0 0 8px}
+.empty ol{padding-left:20px;margin:8px 0}
+.empty li{margin:4px 0}
+.note{font-size:13px;color:var(--muted)}
+
+.notes{font-family:var(--font-notes);font-size:16.5px;line-height:1.6;max-width:68ch}
+.notes h1,.notes h2,.notes h3{font-family:var(--font-ui);text-wrap:balance;letter-spacing:-.01em}
+.notes h2{font-size:15px;text-transform:uppercase;letter-spacing:.05em;color:var(--accent);margin:22px 0 6px;padding-top:12px;border-top:1px solid var(--line)}
+.notes h2:first-child{margin-top:0;padding-top:0;border-top:none}
+.notes h3{font-size:16px;margin:16px 0 4px}
+.notes ul,.notes ol{padding-left:22px}
+.notes li{margin:3px 0}
+.notes code{font-family:var(--font-mono);font-size:.85em}
+.notes blockquote{margin:8px 0;padding:4px 12px;border-left:3px solid var(--key);color:var(--muted)}
+.notes table{border-collapse:collapse;font-size:14px;font-family:var(--font-ui)}
+.notes td,.notes th{border:1px solid var(--line);padding:4px 8px}
+.genline{font-size:13px;color:var(--muted);margin-bottom:10px}
+
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);padding:0;width:min(860px,calc(100% - 32px))}
+dialog::backdrop{background:rgba(10,12,18,.45)}
+.dhead{padding:14px 16px;border-bottom:1px solid var(--line)}
+.dhead h3{margin:0 0 4px;font-size:16px}
+.dbody{padding:14px 16px}
+.dbody textarea{width:100%;min-height:52vh;border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--bg);font:13px/1.55 var(--font-mono);resize:vertical}
+.dfoot{display:flex;gap:8px;justify-content:flex-end;padding:12px 16px;border-top:1px solid var(--line)}
+
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:8px;font-size:14px;max-width:calc(100% - 32px);z-index:10}
+
+@media (max-width:860px){
+  .meta{grid-template-columns:1fr 1fr}
+  .tabs{display:flex}
+  main{grid-template-columns:1fr;padding:0 16px 16px;gap:0}
+  .panel{border-top-left-radius:0;border-top-right-radius:0}
+  main[data-tab="t"] #pNotes{display:none}
+  main[data-tab="n"] #pTrans{display:none}
+}
+@media (max-width:420px){
+  .meta{grid-template-columns:1fr}
+  .seg{grid-template-columns:20px 1fr}
+  .seg time{display:none}
+  .interim{padding-left:32px}
+}
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <h1 class="brand">Apuntes de clase</h1>
+  <div class="sel">
+    <label for="sessionSel" class="hidden">Clase</label>
+    <select id="sessionSel" aria-label="Clase guardada"></select>
+    <button class="btn" id="newBtn" type="button">+ Nueva clase</button>
+  </div>
+  <span class="status" id="status">Cargando…</span>
+</header>
+
+<section class="meta" aria-label="Datos de la clase">
+  <label for="fSubject">Asignatura<input id="fSubject" list="subjects" placeholder="p. ej. Estrategia digital" autocomplete="off"></label>
+  <label for="fTopic">Tema<input id="fTopic" placeholder="p. ej. Modelos de negocio de plataforma" autocomplete="off"></label>
+  <label for="fTeacher">Profesor<input id="fTeacher" list="teachers" placeholder="Nombre" autocomplete="off"></label>
+  <label for="fDate">Fecha<input id="fDate" type="date"></label>
+  <datalist id="subjects"></datalist>
+  <datalist id="teachers"></datalist>
+</section>
+
+<div class="banner hidden" id="banner" role="status">
+  <span id="bannerText">La transcripción se ha pausado.</span>
+  <button class="btn primary" id="resumeBtn" type="button">Reanudar</button>
+</div>
+
+<nav class="tabs" role="tablist" aria-label="Vista">
+  <button role="tab" id="tabT" aria-selected="true" type="button">Transcripción</button>
+  <button role="tab" id="tabN" aria-selected="false" type="button">Apuntes</button>
+</nav>
+
+<main id="main" data-tab="t">
+  <section class="panel" id="pTrans" aria-label="Transcripción">
+    <div class="recbar">
+      <button class="mic" id="micBtn" type="button"><span class="dot" aria-hidden="true"></span><span id="micLabel">Grabar</span></button>
+      <a class="mic hidden" id="grabLink" href="https://alvarorubio8.github.io/apuntes-grabadora/"><span class="dot" aria-hidden="true"></span><span>Grabar en Safari</span></a>
+      <div class="recrow">
+      <div class="recinfo">
+        <span class="recstate" id="recState">Listo para transcribir</span>
+        <span class="recsub" id="recSub">0 palabras · 00:00:00</span>
+        <span class="recsub diag" id="diag"></span>
+      </div>
+      <button class="btn keybtn" id="keyBtn" type="button" title="Atajo: tecla K">★ Clave</button>
+      </div>
+    </div>
+    <div class="kbd" id="kbdRow">
+      <label for="kbdIn" class="kbdlab" id="kbdLab">Escribe o dicta con el micro del teclado. Se añade solo tras una pausa.</label>
+      <div class="kbdrow">
+        <textarea id="kbdIn" rows="2" enterkeyhint="send" placeholder="Toca aquí y pulsa el micro del teclado…"></textarea>
+        <button class="btn" id="kbdAdd" type="button">Añadir</button>
+      </div>
+    </div>
+    <div class="phead">
+      <h2>Transcripción</h2>
+      <button class="btn" id="importBtn" type="button">Pegar transcripción</button>
+      <button class="btn ghost" id="editBtn" type="button">Editar</button>
+    </div>
+    <div class="pbody" id="trans" aria-live="off"></div>
+  </section>
+
+  <section class="panel" id="pNotes" aria-label="Apuntes">
+    <div class="phead">
+      <h2>Apuntes</h2>
+      <button class="btn primary" id="genBtn" type="button">Generar apuntes</button>
+      <button class="btn hidden" id="stopGenBtn" type="button">Detener</button>
+      <button class="btn" id="copyBtn" type="button">Copiar</button>
+      <button class="btn" id="mdBtn" type="button">.md</button>
+      <button class="btn" id="docxBtn" type="button">Word</button>
+    </div>
+    <div class="pbody">
+      <div class="genline" id="genLine"></div>
+      <div class="notes" id="notes"></div>
+    </div>
+  </section>
+</main>
+
+<dialog id="editDlg" aria-labelledby="editTitle">
+  <div class="dhead">
+    <h3 id="editTitle">Editar o pegar transcripción</h3>
+    <div class="note">Una frase por línea. Formato: <code>[10:42:15] ★ texto</code>. La marca de hora y la ★ son opcionales. Puedes pegar aquí una transcripción de Teams o Zoom.</div>
+  </div>
+  <div class="dbody"><textarea id="editArea" spellcheck="true" aria-label="Texto de la transcripción"></textarea></div>
+  <div class="dfoot">
+    <button class="btn" id="editCancel" type="button">Cancelar</button>
+    <button class="btn primary" id="editSave" type="button">Guardar cambios</button>
+  </div>
+</dialog>
+
+<dialog id="impDlg" aria-labelledby="impTitle">
+  <div class="dhead">
+    <h3 id="impTitle">Pegar transcripción</h3>
+    <div class="note">Mantén pulsado el cuadro y elige «Pegar». Sirve lo copiado desde la Grabadora, Notas de voz, Teams o Zoom.</div>
+  </div>
+  <div class="dbody">
+    <textarea id="impArea" aria-label="Transcripción pegada" placeholder="Mantén pulsado aquí y elige «Pegar»…"></textarea>
+    <div class="radios" role="radiogroup" aria-label="Qué hacer con lo que ya hay">
+      <label><input type="radio" name="impMode" value="replace" checked> Sustituir la transcripción anterior (tus notas se conservan)</label>
+      <label><input type="radio" name="impMode" value="append"> Añadir al final</label>
+    </div>
+  </div>
+  <div class="dfoot">
+    <button class="btn" id="impCancel" type="button">Cancelar</button>
+    <button class="btn primary" id="impOk" type="button">Importar</button>
+  </div>
+</dialog>
+
+<dialog id="delDlg" aria-labelledby="delTitle">
+  <div class="dhead"><h3 id="delTitle">¿Eliminar esta clase?</h3><div class="note" id="delText">Se borrarán la transcripción y los apuntes. No se puede deshacer.</div></div>
+  <div class="dfoot">
+    <button class="btn" id="delCancel" type="button">Cancelar</button>
+    <button class="btn primary" id="delOk" type="button">Eliminar</button>
+  </div>
+</dialog>
+
+<div class="toast hidden" id="toast" role="status"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script>
+(() => {
+"use strict";
+const $ = s => document.querySelector(s);
+const clone = o => JSON.parse(JSON.stringify(o));
+const LS = "apuntes.v1.";
+const SIZE_WARN = 220000; // bytes aprox.; el límite por documento es 256 KiB
+
+// ---------- estado ----------
+let db = null, uid = null, dict = null, sample = null, downloads = null;
+let mode = "local";                 // "cloud" | "local"
+let index = {};                     // id -> {subject, topic, teacher, date, updatedAt, words}
+let cur = null;                     // sesión abierta
+let wantRec = false, listening = false, recStart = 0, userStopped = false;
+let saveTimer = null, saving = false, pending = false, dirty = false;
+let kbdTimer = null, kbdDone = 0;
+let genCtl = null, wakeLock = null;
+let restarts = [];
+const dg = { st:'—', why:'', p:0, f:0, err:'', v:'v8' };
+function diag(){ const e = $("#diag"); if(e) e.textContent = 'Micro ' + dg.v + ': ' + (dict ? 'disponible' : 'no disponible') + ' · estado ' + dg.st + (dg.why ? ' (' + dg.why + ')' : '') + ' · parciales ' + dg.p + ' · frases ' + dg.f + (dg.err ? ' · error ' + dg.err : ''); }
+let clockOn = false, clockStart = 0;   // iPad: cronómetro de clase (graba Notas de voz)
+
+// ---------- utilidades ----------
+function lsGet(k){ try{ const v = localStorage.getItem(LS + k); return v ? JSON.parse(v) : null; }catch(e){ return null; } }
+function lsSet(k, v){ try{ localStorage.setItem(LS + k, JSON.stringify(v)); return true; }catch(e){ return false; } }
+function lsDel(k){ try{ localStorage.removeItem(LS + k); }catch(e){} }
+function newId(){ return "s-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+function today(){ const d = new Date(); return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); }
+function pad(n){ return String(n).padStart(2, "0"); }
+function clock(ts){ if(!ts) return ""; const d = new Date(ts); return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()); }
+function hms(ms){ const s = Math.floor(ms/1000); return pad(Math.floor(s/3600)) + ":" + pad(Math.floor(s/60)%60) + ":" + pad(s%60); }
+function words(){ return cur.segs.reduce((n, s) => n + (s.x.trim() ? s.x.trim().split(/\s+/).length : 0), 0); }
+function withTimeout(p, ms){ return Promise.race([p, new Promise((_, r) => setTimeout(() => r({code:"timeout"}), ms))]); }
+function fmtDate(d){ if(!d) return ""; const [y,m,dd] = d.split("-"); return dd + "/" + m + "/" + y.slice(2); }
+function hasContent(s){ return s.segs.length || s.notes || s.subject || s.topic; }
+function blank(){ return { id:newId(), subject:"", topic:"", teacher:"", date:today(), createdAt:Date.now(), updatedAt:Date.now(), recMs:0, segs:[], notes:"", notesAt:0 }; }
+function metaOf(s){ return { subject:s.subject, topic:s.topic, teacher:s.teacher, date:s.date, updatedAt:s.updatedAt, words:words() }; }
+
+let toastT = null;
+function toast(msg){ const t = $("#toast"); t.textContent = msg; t.classList.remove("hidden"); clearTimeout(toastT); toastT = setTimeout(() => t.classList.add("hidden"), 3800); }
+function setStatus(msg, cls){ const s = $("#status"); s.textContent = msg; s.className = "status" + (cls ? " " + cls : ""); }
+
+// ---------- almacenamiento ----------
+const idxRef = () => db.doc("data/users/" + uid + "/index");
+const sesRef = id => db.collection("data/users/" + uid).doc(id);
+
+async function loadIndex(){
+  const local = lsGet("index") || {};
+  if(mode === "cloud"){
+    try{
+      const snap = await withTimeout(idxRef().get(), 10000);
+      index = snap.exists ? clone(snap.data().sessions || {}) : {};
+      // Sube las clases que solo estaban en este navegador
+      const missing = Object.keys(local).filter(id => !index[id]);
+      for(const id of missing){
+        const s = lsGet("s." + id);
+        if(s){ try{ await sesRef(id).set(s); index[id] = local[id]; }catch(e){} }
+      }
+      if(missing.length) await idxRef().set({ sessions:index });
+      return;
+    }catch(e){
+      mode = "local";
+      setStatus("Sin acceso al historial: se guarda en este navegador", "warn");
+    }
+  }
+  index = local;
+}
+
+async function loadSession(id){
+  if(mode === "cloud"){
+    try{
+      const snap = await withTimeout(sesRef(id).get(), 10000);
+      if(snap.exists) return clone(snap.data());
+    }catch(e){}
+  }
+  return lsGet("s." + id);
+}
+
+function saveSoon(delay){
+  dirty = true;
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(persist, delay == null ? 4000 : delay);
+}
+
+async function persist(){
+  clearTimeout(saveTimer);
+  if(!cur || !hasContent(cur)) return;
+  if(saving){ pending = true; return; }
+  saving = true; pending = false; dirty = false;
+  cur.updatedAt = Date.now();
+  const s = clone(cur);
+  index[s.id] = metaOf(s);
+  lsSet("s." + s.id, s); lsSet("index", index); lsSet("last", s.id);
+  const size = JSON.stringify(s).length;
+  try{
+    if(mode === "cloud"){
+      setStatus("Guardando…");
+      await sesRef(s.id).set(s);
+      await idxRef().set({ sessions:index });
+      setStatus("Guardado " + clock(Date.now()).slice(0,5) + (size > SIZE_WARN ? " · clase muy larga, crea otra" : ""), size > SIZE_WARN ? "warn" : "");
+    } else {
+      setStatus("Guardado en este navegador " + clock(Date.now()).slice(0,5), "warn");
+    }
+  }catch(e){
+    const msg = e && e.code === "quota_exceeded" ? "Historial lleno: elimina clases antiguas" :
+                e && e.code === "invalid_argument" ? "Clase demasiado larga para guardarla: crea otra clase" :
+                "Error al guardar (copia local hecha)";
+    setStatus(msg, "err");
+  }
+  saving = false;
+  renderSelect();
+  if(pending) saveSoon(1500);
+}
+
+async function removeSession(id){
+  delete index[id];
+  lsDel("s." + id); lsSet("index", index);
+  if(mode === "cloud"){
+    try{ await sesRef(id).delete(); await idxRef().set({ sessions:index }); }catch(e){ setStatus("No se pudo borrar del historial", "err"); }
+  }
+}
+
+// ---------- render ----------
+function renderSelect(){
+  const sel = $("#sessionSel");
+  const ids = Object.keys(index).sort((a, b) => (index[b].date || "").localeCompare(index[a].date || "") || (index[b].updatedAt||0) - (index[a].updatedAt||0));
+  if(cur && !index[cur.id]) ids.unshift(cur.id);
+  sel.innerHTML = "";
+  for(const id of ids){
+    const m = (cur && id === cur.id) ? metaOf(cur) : index[id];
+    const o = document.createElement("option");
+    o.value = id;
+    o.textContent = [fmtDate(m.date), m.subject || "Sin asignatura", m.topic].filter(Boolean).join(" · ") + (m.words ? "  (" + m.words + " pal.)" : "");
+    sel.appendChild(o);
+  }
+  const del = document.createElement("option"); del.value = "__del"; del.textContent = "— Eliminar esta clase…"; sel.appendChild(del);
+  if(cur) sel.value = cur.id;
+  // autocompletado de asignaturas y profesores
+  const subs = new Set(), tch = new Set();
+  Object.values(index).forEach(m => { if(m.subject) subs.add(m.subject); if(m.teacher) tch.add(m.teacher); });
+  $("#subjects").innerHTML = [...subs].map(v => "<option></option>").join("");
+  [...$("#subjects").children].forEach((o, i) => o.value = [...subs][i]);
+  $("#teachers").innerHTML = [...tch].map(v => "<option></option>").join("");
+  [...$("#teachers").children].forEach((o, i) => o.value = [...tch][i]);
+}
+
+function renderMeta(){
+  $("#fSubject").value = cur.subject; $("#fTopic").value = cur.topic;
+  $("#fTeacher").value = cur.teacher; $("#fDate").value = cur.date || today();
+}
+
+function segEl(s, i){
+  const d = document.createElement("div");
+  d.className = "seg" + (s.k ? " k" : ""); d.dataset.i = i;
+  const b = document.createElement("button"); b.className = "st"; b.type = "button"; b.textContent = "★";
+  b.setAttribute("aria-label", s.k ? "Quitar marca de clave" : "Marcar como clave");
+  const t = document.createElement("time"); t.textContent = s.t ? clock(s.t) : "";
+  const p = document.createElement("p");
+  if(s.n){ d.classList.add("mine"); const tg = document.createElement("span"); tg.className = "tag"; tg.textContent = "Tu nota"; p.appendChild(tg); }
+  p.appendChild(document.createTextNode(s.x));
+  d.append(b, t, p); return d;
+}
+
+function emptyHTML(){
+  if(!dict) return '<div class="empty"><h3>En clase con el iPad</h3><ol class="steps">' +
+    '<li>Rellena asignatura, tema, profesor y fecha.</li>' +
+    '<li>Pulsa <b>Grabar en Safari</b>. Se abre la Grabadora: pulsa Grabar y la clase se escribe en directo. Usa ★ Clave en lo importante.</li>' +
+    '<li>Al acabar, en la Grabadora pulsa <b>Copiar y abrir Apuntes</b>.</li>' +
+    '<li>Aquí, pulsa <b>Pegar transcripción</b>, pega e importa. Se conservan las horas y las ★.</li>' +
+    '<li>Pulsa <b>Generar apuntes</b>.</li></ol>' +
+    '<p class="note">Plan B si la Grabadora falla: Notas de voz y «Pegar transcripción» al final.</p></div>';
+  const noDict = false;
+  return '<div class="empty"><h3>Cómo usarla</h3><ol>' +
+    '<li>Rellena asignatura, tema, profesor y fecha.</li>' +
+    '<li>Pulsa el micro rojo para empezar o pausar. Cada frase aparece con su hora.</li>' +
+    '<li>Cuando oigas algo importante, pulsa <b>★ Clave</b> (o la tecla K) para marcar la última frase.</li>' +
+    '<li>Pulsa <b>Generar apuntes</b> al final o a mitad de clase.</li></ol>' +
+    '<p class="note">Deja esta pestaña visible: si cambias de pestaña, la transcripción se pausa. El audio no se guarda, solo el texto.</p>' +
+    (noDict ? '<p class="note"><b>En este dispositivo no hay dictado en directo.</b> Usa el micro del teclado en la caja de arriba: el texto se añade como frase tras unos segundos de pausa. Para transcribir una clase entera sin tocar nada, usa el portátil con Chrome o Edge. Tus clases y apuntes se sincronizan entre todos tus dispositivos.</p>' : "") +
+    '</div>';
+}
+
+function renderTrans(){
+  const box = $("#trans");
+  box.innerHTML = "";
+  if(!cur.segs.length){ box.innerHTML = (listening || wantRec) ? '<div class="listen" id="listenHint"><i></i>' + (listening ? 'Escuchando… el texto aparecerá aquí mientras se habla.' : 'Activando el micrófono…') + '</div>' : emptyHTML(); }
+  else { const f = document.createDocumentFragment(); cur.segs.forEach((s, i) => f.appendChild(segEl(s, i))); box.appendChild(f); }
+  const it = document.createElement("div"); it.className = "interim"; it.id = "interim"; box.appendChild(it);
+  box.scrollTop = cur.segs.length ? box.scrollHeight : 0;
+  renderRecInfo();
+}
+
+function appendSeg(s){
+  const box = $("#trans");
+  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  if(cur.segs.length === 1) { renderTrans(); return; }
+  box.insertBefore(segEl(s, cur.segs.length - 1), $("#interim"));
+  if(nearBottom) box.scrollTop = box.scrollHeight;
+}
+
+function renderRecInfo(){
+  const live = listening || clockOn;
+  const ms = cur.recMs + (listening ? Date.now() - recStart : clockOn ? Date.now() - clockStart : 0);
+  const keys = cur.segs.filter(s => s.k).length;
+  $("#recSub").textContent = words() + " palabras · " + hms(ms) + (keys ? " · " + keys + " ★" : "");
+  const mic = $("#micBtn");
+  mic.classList.toggle("on", live);
+  $("#importBtn").classList.toggle("primary", !dict);
+  $("#kbdRow").classList.toggle("compact", !!dict);
+  $("#kbdLab").textContent = dict ? "" : "Tus notas (opcional): escribe aquí lo que quieras destacar.";
+  $("#kbdIn").placeholder = dict ? "Escribe una nota o frase y pulsa Intro…" : "Toca aquí y pulsa el micro del teclado…";
+  let label, state;
+  if(dict){
+    label = listening ? "Pausar" : wantRec ? "Conectando…" : (cur.segs.length ? "Seguir grabando" : "Grabar");
+    state = listening ? "Transcribiendo…" : wantRec ? "Conectando…" : (cur.segs.length ? "En pausa" : "Listo para transcribir");
+  } else {
+    label = clockOn ? "Terminar clase" : (cur.recMs ? "Reanudar clase" : "Empezar clase");
+    state = "Graba en Safari con transcripción en directo";
+  }
+  $("#micLabel").textContent = label;
+  mic.classList.toggle("hidden", !dict);
+  $("#grabLink").classList.toggle("hidden", !!dict);
+  mic.setAttribute("aria-label", label);
+  mic.setAttribute("aria-pressed", live ? "true" : "false");
+  $("#recState").textContent = state;
+}
+
+function toggleClock(){
+  if(clockOn){ cur.recMs += Date.now() - clockStart; clockOn = false; commitKbd(false); saveSoon(500); toast("Clase terminada. Ya puedes generar los apuntes."); try{ $("#kbdIn").blur(); }catch(e){} }
+  else { clockOn = true; clockStart = Date.now(); const k = $("#kbdIn"); try{ k.focus(); }catch(e){} toast("Toca el micro del teclado para transcribir en directo."); try{ navigator.wakeLock && navigator.wakeLock.request("screen").then(w => wakeLock = w).catch(() => {}); }catch(e){} }
+  renderRecInfo();
+}
+
+let notesRaf = 0;
+function renderNotes(){
+  if(notesRaf) return;
+  notesRaf = requestAnimationFrame(() => {
+    notesRaf = 0;
+    const n = $("#notes");
+    if(!cur.notes){
+      n.innerHTML = '<p class="note">' + (sample ? "Aún no hay apuntes. Pulsa «Generar apuntes» cuando tengas transcripción; puedes hacerlo a mitad de clase y repetir al final." : "Generar apuntes con Claude no está disponible en esta vista. Ábrela desde claude.ai con tu sesión iniciada.") + "</p>";
+    } else if(window.marked && window.DOMPurify){
+      n.innerHTML = DOMPurify.sanitize(marked.parse(cur.notes));
+    } else {
+      n.textContent = cur.notes; n.style.whiteSpace = "pre-wrap";
+    }
+    $("#genLine").textContent = cur.notesAt ? "Generados " + fmtDate(new Date(cur.notesAt).toISOString().slice(0,10)) + " a las " + clock(cur.notesAt).slice(0,5) : "";
+    const has = !!cur.notes;
+    $("#copyBtn").disabled = !has; $("#mdBtn").disabled = !has && !cur.segs.length; $("#docxBtn").disabled = !has && !cur.segs.length;
+  });
+}
+
+function renderAll(){ renderMeta(); renderTrans(); renderNotes(); renderSelect(); }
+
+// ---------- sesiones ----------
+async function openSession(id){
+  if(cur) commitKbd(true);
+  if(clockOn) toggleClock();
+  if(listening) stopRec();
+  await persist();
+  const s = await loadSession(id);
+  if(!s){ toast("No se encontró esa clase"); renderSelect(); return; }
+  cur = Object.assign(blank(), s);
+  lsSet("last", id);
+  renderAll();
+}
+
+async function newSession(){
+  commitKbd(true);
+  if(clockOn) toggleClock();
+  if(listening) stopRec();
+  await persist();
+  const prev = cur;
+  cur = blank();
+  if(prev && prev.subject){ cur.subject = prev.subject; cur.teacher = prev.teacher; }
+  renderAll();
+  $("#fTopic").focus();
+}
+
+// ---------- dictado ----------
+function startRec(){
+  if(!dict) return;
+  wantRec = true; userStopped = false;
+  hideBanner();
+  let p;
+  try{ p = dict.start(); }catch(e){ p = Promise.reject(e); }   // sin await antes: debe salir del clic
+  dg.err = ''; dg.st = 'pidiendo'; diag();
+  Promise.resolve(p).then(() => { if(dg.st === 'pidiendo'){ dg.st = 'iniciado'; diag(); } }).catch(e => {
+    dg.err = (e && (e.code || e.message)) || String(e); diag();
+    wantRec = false; renderRecInfo();
+    if(e && e.code === "not_granted"){ toast("Sin permiso de micrófono. Puedes pegar la transcripción con «Editar / pegar»."); dict = null; renderRecInfo(); }
+    else if(e && e.code === "dismissed"){ toast("Permiso no concedido. Vuelve a pulsar el micro para intentarlo."); }
+    else toast("No se pudo iniciar el dictado" + (e && e.code ? " (" + e.code + ")" : ""));
+  });
+  try{ navigator.wakeLock && navigator.wakeLock.request("screen").then(w => wakeLock = w).catch(() => {}); }catch(e){}
+  restarts = [];
+  if(!cur.segs.length) renderTrans();
+  renderRecInfo();
+}
+
+function stopRec(){
+  wantRec = false; userStopped = true;
+  try{ dict && Promise.resolve(dict.stop()).catch(() => {}); }catch(e){}
+  try{ wakeLock && wakeLock.release(); }catch(e){} wakeLock = null;
+  hideBanner(); renderRecInfo(); saveSoon(800);
+  if(!cur.segs.length) renderTrans();
+}
+
+function onDictState({ state, reason }){
+  dg.st = state; dg.why = reason || ''; diag();
+  if(state === "listening"){
+    if(!listening){ listening = true; recStart = Date.now(); }
+    hideBanner();
+    if(!cur.segs.length) renderTrans();
+  } else if(state === "idle"){
+    if(listening){ cur.recMs += Date.now() - recStart; listening = false; }
+    const byUser = userStopped || reason === "stopped" && !wantRec;
+    const it = $("#interim"); if(it) it.textContent = "";
+    // Se ha cortado solo (silencio, red…): reanuda sin que tengas que pulsar, con límite para no entrar en bucle
+    if(!byUser && wantRec && reason !== "hidden" && reason !== "viewer_stopped"){
+      const now = Date.now();
+      restarts = restarts.filter(t => now - t < 120000);
+      if(restarts.length < 6){
+        restarts.push(now);
+        let p; try{ p = dict.start(); }catch(e){ p = Promise.reject(e); }
+        Promise.resolve(p).catch(() => { wantRec = false; showBanner("El dictado se ha detenido. Pulsa Reanudar para seguir."); renderRecInfo(); if(!cur.segs.length) renderTrans(); });
+        renderRecInfo();
+        return;
+      }
+    }
+    if(!byUser && wantRec){
+      showBanner(reason === "hidden" ? "La transcripción se ha pausado al cambiar de pestaña." :
+                 reason === "viewer_stopped" ? "El dictado se ha detenido desde el navegador." :
+                 "El dictado se ha detenido" + (reason ? " (" + reason + ")" : "") + ".");
+    }
+    wantRec = false;
+    if(!cur.segs.length) renderTrans();
+    saveSoon(1000);
+  }
+  renderRecInfo();
+}
+
+function onPartial({ text }){
+  dg.p++; diag();
+  const it = $("#interim"); if(!it) return;
+  it.textContent = text || "";
+  const hint = $("#listenHint"); if(hint && text) hint.remove();
+  const box = $("#trans"); box.scrollTop = box.scrollHeight;
+}
+function onFinal({ text }){
+  dg.f++; diag();
+  const x = (text || "").trim(); if(!x) return;
+  const s = { t:Date.now(), x, k:0 };
+  cur.segs.push(s);
+  $("#interim").textContent = "";
+  appendSeg(s); renderRecInfo(); renderNotes();
+  saveSoon();
+}
+
+function showBanner(t){ $("#bannerText").textContent = t; $("#banner").classList.remove("hidden"); }
+function hideBanner(){ $("#banner").classList.add("hidden"); }
+
+function toggleKey(i){
+  const s = cur.segs[i]; if(!s) return;
+  s.k = s.k ? 0 : 1;
+  const el = $('#trans .seg[data-i="' + i + '"]');
+  if(el){ el.classList.toggle("k", !!s.k); el.querySelector(".st").setAttribute("aria-label", s.k ? "Quitar marca de clave" : "Marcar como clave"); }
+  renderRecInfo(); saveSoon(1500);
+}
+function keyLast(){
+  if(!cur.segs.length){ toast("Todavía no hay frases que marcar"); return; }
+  const i = cur.segs.length - 1;
+  if(!cur.segs[i].k) toggleKey(i); else toast("La última frase ya está marcada");
+}
+
+// ---------- modo teclado (móvil o notas escritas) ----------
+// El texto dictado con el teclado se va acumulando; tras una pausa se añade lo nuevo como frase.
+// No se vacía la caja durante el dictado para no cortar el micro del teclado (iOS/Android).
+function addSegs(text){
+  const parts = text.split(/(?<=[.!?…])\s+/).map(x => x.trim()).filter(Boolean);
+  if(!parts.length) return;
+  const now = Date.now();
+  parts.forEach(p => { const s = { t:now, x:p, k:0, n:1 }; cur.segs.push(s); appendSeg(s); });
+  renderRecInfo(); renderNotes(); saveSoon();
+}
+function commitKbd(clear){
+  clearTimeout(kbdTimer);
+  const el = $("#kbdIn");
+  if(el.value.length < kbdDone) kbdDone = 0;
+  const fresh = el.value.slice(kbdDone).trim();
+  kbdDone = el.value.length;
+  if(fresh) addSegs(fresh);
+  if(clear || el.value.length > 1200){ el.value = ""; kbdDone = 0; }
+}
+
+// ---------- sincronización entre dispositivos ----------
+function watchIndex(){
+  if(mode !== "cloud") return;
+  try{
+    idxRef().onSnapshot(snap => {
+      if(!snap.exists || snap.metadata.hasPendingWrites) return;
+      index = clone(snap.data().sessions || {});
+      lsSet("index", index);
+      const remote = cur && index[cur.id];
+      const busy = listening || wantRec || genCtl || dirty || saving || document.querySelector("dialog[open]");
+      if(remote && !busy && (remote.updatedAt || 0) > (cur.updatedAt || 0)) reloadCurrent();
+      else renderSelect();
+    }, () => {});
+  }catch(e){}
+}
+async function reloadCurrent(){
+  try{
+    const snap = await withTimeout(sesRef(cur.id).get(), 10000);
+    if(!snap.exists) return;
+    const s = clone(snap.data());
+    if(listening || dirty || saving || (s.updatedAt || 0) <= (cur.updatedAt || 0)) return;
+    cur = Object.assign(blank(), s);
+    lsSet("s." + cur.id, cur);
+    renderAll();
+    toast("Clase actualizada desde otro dispositivo");
+  }catch(e){}
+}
+
+// ---------- editar / pegar ----------
+function toLines(){ return cur.segs.map(s => (s.t ? "[" + clock(s.t) + "] " : "") + (s.n ? "✎ " : "") + (s.k ? "★ " : "") + s.x).join("\n"); }
+function fromLines(txt){
+  const base = cur.date ? new Date(cur.date + "T00:00:00") : new Date();
+  const out = [];
+  txt.split(/\r?\n/).forEach(line => {
+    let l = line.trim(); if(!l) return;
+    let t = 0, k = 0;
+    const m = l.match(/^\[?(\d{1,2}):(\d{2})(?::(\d{2}))?\]?\s+(.*)$/);
+    if(m){ const d = new Date(base); d.setHours(+m[1], +m[2], +(m[3] || 0), 0); t = d.getTime(); l = m[4]; }
+    let n = 0;
+    if(/^✎\s*/.test(l)){ n = 1; l = l.replace(/^✎\s*/, ""); }
+    if(/^★\s*/.test(l)){ k = 1; l = l.replace(/^★\s*/, ""); }
+    if(l) out.push(n ? { t, x:l, k, n } : { t, x:l, k });
+  });
+  return out;
+}
+
+// ---------- importar transcripción (Notas de voz, Teams, Zoom) ----------
+function parseImport(txt){
+  const lines = txt.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const stamped = lines.filter(l => /^\[?\d{1,2}:\d{2}(:\d{2})?\]?\s+/.test(l)).length;
+  if(lines.length && stamped / lines.length > 0.5) return fromLines(txt).map(s => { delete s.n; return s; });
+  // Texto corrido: una frase por segmento
+  const out = [];
+  txt.replace(/\s+/g, " ").trim().split(/(?<=[.!?…])\s+(?=[A-ZÁÉÍÓÚÑ¿¡0-9"«])/).forEach(x => { x = x.trim(); if(x) out.push({ t:0, x, k:0 }); });
+  return out;
+}
+function doImport(){
+  const txt = $("#impArea").value;
+  const segs = parseImport(txt);
+  if(!segs.length){ toast("No hay texto que importar"); return; }
+  const mode = document.querySelector('input[name="impMode"]:checked').value;
+  if(mode === "replace"){
+    const mine = cur.segs.filter(s => s.n);
+    cur.segs = segs.concat(mine);
+  } else cur.segs = cur.segs.concat(segs);
+  $("#impDlg").close(); $("#impArea").value = "";
+  renderTrans(); renderNotes(); saveSoon(300);
+  toast(segs.length + " frases importadas");
+}
+
+// ---------- apuntes con Claude ----------
+function lineFor(s){ return (s.t ? "[" + clock(s.t).slice(0,5) + "] " : "") + (s.k ? "★ " : "") + s.x; }
+function transcriptForPrompt(){ return cur.segs.filter(s => !s.n).map(lineFor).join("\n"); }
+function studentNotesForPrompt(){ return cur.segs.filter(s => s.n).map(lineFor).join("\n"); }
+
+function buildPrompt(partial){
+  const meta = "Asignatura: " + (cur.subject || "(sin indicar)") + "\nTema: " + (cur.topic || "(sin indicar)") +
+    "\nProfesor: " + (cur.teacher || "(sin indicar)") + "\nFecha: " + (cur.date ? fmtDate(cur.date) : "(sin indicar)");
+  return [
+    "Convierte la transcripción automática de una clase de un programa ejecutivo de negocio digital (MIB de ISDI) en apuntes de estudio en español.",
+    "", meta, "",
+    "REGLAS",
+    "- Usa solo lo que aparece en la transcripción. No inventes cifras, autores, empresas, frameworks ni ejemplos que no se mencionen.",
+    "- La transcripción procede de reconocimiento de voz: corrige los errores evidentes (palabras mal reconocidas, nombres de marcos o empresas conocidos mal escritos). Si una corrección o un fragmento es dudoso, márcalo con (¿?).",
+    "- Las líneas que empiezan por ★ las marcó el alumno como importantes: dales prioridad, inclúyelas siempre en «Ideas clave» y pon ★ delante.",
+    "- Si hay NOTAS DEL ALUMNO, son lo que él apuntó en clase como importante: úsalas para decidir qué priorizar y desarrolla cada una con lo que dice la transcripción sobre ese punto. Si una nota no aparece en la transcripción, inclúyela igualmente y márcala con (nota del alumno).",
+    "- Si una sección no tiene contenido en la transcripción, escribe solo «—».",
+    "- Frases cortas y claras. Formato Markdown. Sin introducción ni despedida.",
+    "",
+    "ESTRUCTURA (usa exactamente estos encabezados):",
+    "## Resumen  (3-5 frases con la tesis de la clase)",
+    "## Ideas clave  (viñetas, de más a menos importante)",
+    "## Conceptos  (**término**: definición tal como se explicó)",
+    "## Frameworks y modelos  (nombre · para qué sirve · cómo se aplicó en clase)",
+    "## Ejemplos y casos  (empresa o caso · qué ilustra)",
+    "## Citas y datos  (literal o cifra, con su hora [hh:mm])",
+    "## Preguntas de repaso  (5-8 preguntas que podría hacer el profesor en un examen o en una defensa)",
+    "## Tareas y entregas  (qué, para cuándo y formato, solo si se dijo)",
+    partial ? "\nLa clase sigue en curso: termina con la línea «_Apuntes parciales hasta las " + clock(Date.now()).slice(0,5) + "._»" : "",
+    "", "TRANSCRIPCIÓN", "<<<", transcriptForPrompt() || "(sin transcripción; usa solo las notas del alumno)", ">>>",
+    studentNotesForPrompt() ? "\nNOTAS DEL ALUMNO\n<<<\n" + studentNotesForPrompt() + "\n>>>" : ""
+  ].join("\n");
+}
+
+async function generate(){
+  if(!sample){ toast("Generar apuntes no está disponible en esta vista"); return; }
+  commitKbd(true);
+  if(!cur.segs.length){ toast("Todavía no hay transcripción ni notas"); return; }
+  const prevNotes = cur.notes;
+  genCtl = new AbortController();
+  $("#genBtn").classList.add("hidden"); $("#stopGenBtn").classList.remove("hidden");
+  $("#genBtn").disabled = true;
+  if(innerWidth <= 860) setTab("n");
+  cur.notes = ""; cur.notesAt = 0; renderNotes();
+  $("#notes").innerHTML = '<p class="note">Generando apuntes…</p>';
+  try{
+    const res = await sample(buildPrompt(listening), {
+      modelTier:"default", cache:false, signal:genCtl.signal,
+      onText: ({ text }) => { if(text && text !== "Thinking...") { cur.notes = text; renderNotes(); } }
+    });
+    cur.notes = res.text; cur.notesAt = Date.now();
+    if(res.truncated) toast("Los apuntes se han cortado por longitud. Prueba a generarlos por partes.");
+  }catch(e){
+    if(e && e.text){ cur.notes = e.text; cur.notesAt = Date.now(); }
+    else cur.notes = prevNotes;
+    if(genCtl.signal.aborted) toast("Generación detenida");
+    else if(e && e.code === "not_granted"){ sample = null; toast("Sin permiso para usar Claude en esta página"); }
+    else if(e && e.code === "rate_limited") toast("Demasiadas peticiones seguidas. Espera un minuto y vuelve a intentarlo.");
+    else toast("No se pudieron generar los apuntes" + (e && e.code ? " (" + e.code + ")" : ""));
+  }finally{
+    genCtl = null;
+    $("#genBtn").classList.remove("hidden"); $("#stopGenBtn").classList.add("hidden"); $("#genBtn").disabled = !sample;
+    renderNotes(); saveSoon(300);
+  }
+}
+
+// ---------- exportar ----------
+function baseName(){
+  const n = [cur.date, cur.subject, cur.topic].filter(Boolean).join(" - ") || "apuntes";
+  return n.replace(/[\\/:*?"<>|]+/g, "").slice(0, 120);
+}
+function markdownDoc(){
+  const head = "# " + (cur.topic || cur.subject || "Apuntes de clase") + "\n\n" +
+    "- **Asignatura:** " + (cur.subject || "—") + "\n- **Profesor:** " + (cur.teacher || "—") + "\n- **Fecha:** " + (cur.date ? fmtDate(cur.date) : "—") + "\n\n";
+  const tr = cur.segs.map(s => "- " + (s.t ? "`" + clock(s.t) + "` " : "") + (s.n ? "_(mi nota)_ " : "") + (s.k ? "★ **" + s.x + "**" : s.x)).join("\n");
+  return head + (cur.notes || "_Sin apuntes generados._") + "\n\n---\n\n## Transcripción\n\n" + (tr || "—") + "\n";
+}
+
+async function saveFile(filename, data){
+  if(!downloads){ toast("La descarga no está disponible en esta vista. Usa «Copiar»."); return; }
+  try{ await downloads.save({ filename, data }); }
+  catch(e){
+    if(e && e.code === "declined") return;
+    if(e && e.code === "rate_limited") toast("Ya hay una descarga pendiente de confirmar");
+    else toast("No se pudo descargar" + (e && e.code ? " (" + e.code + ")" : ""));
+  }
+}
+
+function xml(s){ return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function runs(text, base){
+  // **negrita** y `código` -> runs de Word
+  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean);
+  return parts.map(p => {
+    let bold = base.bold, t = p, mono = false;
+    if(/^\*\*[^*]+\*\*$/.test(p)){ bold = true; t = p.slice(2, -2); }
+    else if(/^`[^`]+`$/.test(p)){ mono = true; t = p.slice(1, -1); }
+    t = t.replace(/(^|\s)_([^_]+)_(?=\s|$|[.,;:])/g, "$1$2");
+    const rpr = "<w:rPr><w:rFonts w:ascii=\"" + (mono ? "Consolas" : "Calibri") + "\" w:hAnsi=\"" + (mono ? "Consolas" : "Calibri") + "\"/>" + (bold ? "<w:b/>" : "") +
+      (base.color ? "<w:color w:val=\"" + base.color + "\"/>" : "") + "<w:sz w:val=\"" + base.size + "\"/></w:rPr>";
+    return "<w:r>" + rpr + "<w:t xml:space=\"preserve\">" + xml(t) + "</w:t></w:r>";
+  }).join("");
+}
+function para(text, o){
+  o = Object.assign({ size:22, bold:false, before:0, after:120, indent:0, color:"" }, o || {});
+  return "<w:p><w:pPr><w:spacing w:before=\"" + o.before + "\" w:after=\"" + o.after + "\"/>" + (o.indent ? "<w:ind w:left=\"" + o.indent + "\" w:hanging=\"240\"/>" : "") + "</w:pPr>" + runs(text, o) + "</w:p>";
+}
+function mdToDocx(md){
+  const out = [];
+  md.split(/\r?\n/).forEach(line => {
+    const l = line.trimEnd();
+    if(!l.trim()){ return; }
+    let m;
+    if(/^---+$/.test(l.trim())) return;
+    if((m = l.match(/^#\s+(.*)/))) out.push(para(m[1], { size:34, bold:true, after:160 }));
+    else if((m = l.match(/^##\s+(.*)/))) out.push(para(m[1], { size:26, bold:true, before:240, after:100, color:"2747C9" }));
+    else if((m = l.match(/^###+\s+(.*)/))) out.push(para(m[1], { size:23, bold:true, before:160, after:80 }));
+    else if((m = l.match(/^(\s*)[-*+]\s+(.*)/))) out.push(para("•\t" + m[2], { indent:360 + Math.min(m[1].length, 8) * 90 }));
+    else if((m = l.match(/^(\s*)(\d+)[.)]\s+(.*)/))) out.push(para(m[2] + ".\t" + m[3], { indent:360 + Math.min(m[1].length, 8) * 90 }));
+    else if((m = l.match(/^>\s?(.*)/))) out.push(para(m[1], { indent:360, color:"5B6271" }));
+    else out.push(para(l));
+  });
+  return out.join("");
+}
+async function docxBlob(){
+  if(!window.JSZip) throw { code:"nolib" };
+  const zip = new JSZip();
+  zip.file("[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');
+  zip.file("_rels/.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>');
+  const body = mdToDocx(markdownDoc()).replace(/\t/g, " ");
+  zip.file("word/document.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>' + body +
+    '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1418" w:right="1418" w:bottom="1418" w:left="1418" w:header="708" w:footer="708" w:gutter="0"/></w:sectPr></w:body></w:document>');
+  return zip.generateAsync({ type:"blob" });
+}
+
+// ---------- pestañas (móvil) ----------
+function setTab(t){
+  $("#main").dataset.tab = t;
+  $("#tabT").setAttribute("aria-selected", t === "t"); $("#tabN").setAttribute("aria-selected", t === "n");
+}
+
+// ---------- eventos ----------
+$("#micBtn").addEventListener("click", () => { if(!dict){ toggleClock(); return; } if(listening || wantRec) stopRec(); else startRec(); });
+$("#resumeBtn").addEventListener("click", () => startRec());
+$("#keyBtn").addEventListener("click", keyLast);
+$("#kbdIn").addEventListener("input", () => { clearTimeout(kbdTimer); kbdTimer = setTimeout(() => commitKbd(false), 3500); });
+$("#kbdIn").addEventListener("keydown", e => { if(e.key === "Enter" && !e.shiftKey && !e.isComposing){ e.preventDefault(); commitKbd(true); } });
+$("#kbdIn").addEventListener("blur", () => commitKbd(false));
+$("#kbdAdd").addEventListener("click", () => commitKbd(true));
+$("#trans").addEventListener("click", e => { const b = e.target.closest(".st"); if(b) toggleKey(+b.parentElement.dataset.i); });
+document.addEventListener("keydown", e => {
+  if((e.key === "k" || e.key === "K") && !e.metaKey && !e.ctrlKey && !e.altKey && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) && !document.querySelector("dialog[open]")){ e.preventDefault(); keyLast(); }
+});
+
+["fSubject","fTopic","fTeacher","fDate"].forEach(id => $("#" + id).addEventListener("input", e => {
+  const key = { fSubject:"subject", fTopic:"topic", fTeacher:"teacher", fDate:"date" }[id];
+  cur[key] = e.target.value; saveSoon(2500);
+}));
+["fSubject","fTopic","fTeacher","fDate"].forEach(id => $("#" + id).addEventListener("change", () => { renderSelect(); saveSoon(500); }));
+
+$("#newBtn").addEventListener("click", newSession);
+$("#sessionSel").addEventListener("change", e => {
+  const v = e.target.value;
+  if(v === "__del"){ e.target.value = cur.id; $("#delText").textContent = "«" + ([cur.subject, cur.topic].filter(Boolean).join(" · ") || "Clase sin título") + "»: se borrarán la transcripción y los apuntes. No se puede deshacer."; $("#delDlg").showModal(); return; }
+  if(v && v !== cur.id) openSession(v);
+});
+$("#delCancel").addEventListener("click", () => $("#delDlg").close());
+$("#delOk").addEventListener("click", async () => {
+  $("#delDlg").close();
+  if(listening) stopRec();
+  clearTimeout(saveTimer);
+  const id = cur.id; await removeSession(id);
+  const next = Object.keys(index).sort((a, b) => (index[b].updatedAt||0) - (index[a].updatedAt||0))[0];
+  cur = null;
+  if(next) await openSession(next); else { cur = blank(); renderAll(); }
+  toast("Clase eliminada");
+});
+
+$("#editBtn").addEventListener("click", () => { if(listening) stopRec(); $("#editArea").value = toLines(); $("#editDlg").showModal(); });
+$("#importBtn").addEventListener("click", () => { if(listening) stopRec(); commitKbd(true); $("#impDlg").showModal(); $("#impArea").focus(); });
+$("#impCancel").addEventListener("click", () => $("#impDlg").close());
+$("#impOk").addEventListener("click", doImport);
+$("#editCancel").addEventListener("click", () => $("#editDlg").close());
+$("#editSave").addEventListener("click", () => { cur.segs = fromLines($("#editArea").value); $("#editDlg").close(); renderTrans(); renderNotes(); saveSoon(300); });
+
+$("#genBtn").addEventListener("click", generate);
+$("#stopGenBtn").addEventListener("click", () => genCtl && genCtl.abort());
+$("#copyBtn").addEventListener("click", async () => {
+  try{ await navigator.clipboard.writeText(cur.notes); toast("Apuntes copiados"); }catch(e){ toast("No se pudo copiar. Selecciona el texto y usa Ctrl+C."); }
+});
+$("#mdBtn").addEventListener("click", () => saveFile(baseName() + ".md", markdownDoc()));
+$("#docxBtn").addEventListener("click", async () => {
+  try{ const b = await docxBlob(); await saveFile(baseName() + ".docx", b); }
+  catch(e){ toast("No se pudo crear el Word. Descarga el .md."); }
+});
+$("#tabT").addEventListener("click", () => setTab("t"));
+$("#tabN").addEventListener("click", () => setTab("n"));
+
+document.addEventListener("visibilitychange", () => {
+  if(document.hidden){ commitKbd(false); persist(); }
+  else if(wantRec && !listening){ showBanner("La transcripción se ha pausado al cambiar de pestaña."); }
+  else if(mode === "cloud" && cur && !dirty && !listening) reloadCurrent();
+});
+window.addEventListener("pagehide", () => { if(cur && hasContent(cur)){ lsSet("s." + cur.id, cur); } });
+setInterval(() => { if(listening || clockOn) renderRecInfo(); }, 1000);
+
+// ---------- arranque ----------
+async function init(){
+  cur = blank(); renderAll();
+  const use = window.claude && typeof window.claude.use === "function" ? n => window.claude.use(n).catch(() => null) : () => Promise.resolve(null);
+  const [d, s, dl, dbx, u] = await Promise.all([use("dictation"), use("sample"), use("downloads"), use("db"), use("user")]);
+  dict = d; sample = s; downloads = dl; db = dbx;
+  diag();
+  if(dict){
+    dict.onPartial(onPartial); dict.onFinal(onFinal); dict.onState(onDictState);
+  }
+  if(db && u){ try{ uid = await u.id(); }catch(e){ uid = null; } }
+  mode = (db && uid) ? "cloud" : "local";
+  if(!downloads){ $("#mdBtn").classList.add("hidden"); $("#docxBtn").classList.add("hidden"); }
+  $("#genBtn").disabled = !sample;
+  await loadIndex();
+  if(mode === "cloud"){ setStatus("Sincronizado con tu cuenta"); watchIndex(); }
+  else if(!$("#status").classList.contains("warn")) setStatus("Se guarda solo en este navegador", "warn");
+  const last = lsGet("last");
+  const ids = Object.keys(index);
+  if(last && index[last]) await openSession(last);
+  else if(ids.length){ await openSession(ids.sort((a, b) => (index[b].updatedAt||0) - (index[a].updatedAt||0))[0]); }
+  else renderAll();
+}
+init();
+})();
+</script>
+</body>
+</html>
